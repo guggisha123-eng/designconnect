@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Check, X, Sparkles, Zap, Shield, Download, Star,
-  Users, Palette, ArrowRight, Crown
+  Users, Palette, ArrowRight, Crown, CreditCard,
+  Loader2, AlertCircle, CheckCircle2, XCircle
 } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+
+// Declare Razorpay global type
+declare global {
+  interface Window {
+    Razorpay: any
+  }
+}
 
 const plans = [
   {
@@ -37,8 +45,8 @@ const plans = [
   },
   {
     name: 'Pro',
-    monthlyPrice: 9.99,
-    yearlyPrice: 79.99,
+    monthlyPrice: 499,   // INR per month
+    yearlyPrice: 3999,    // INR per year (save ~33%)
     description: 'For serious designers',
     icon: Zap,
     features: [
@@ -58,8 +66,8 @@ const plans = [
   },
   {
     name: 'Enterprise',
-    monthlyPrice: 29.99,
-    yearlyPrice: 239.99,
+    monthlyPrice: 1499,   // INR per month
+    yearlyPrice: 11999,   // INR per year
     description: 'For teams and agencies',
     icon: Crown,
     features: [
@@ -81,46 +89,175 @@ const plans = [
 
 const faqs = [
   { q: 'Can I cancel my subscription at any time?', a: 'Yes, you can cancel your Pro or Enterprise subscription at any time. Your benefits will continue until the end of your billing period.' },
-  { q: 'What payment methods do you accept?', a: 'We accept all major credit cards (Visa, Mastercard, American Express), PayPal, and bank transfers for Enterprise plans.' },
+  { q: 'What payment methods do you accept?', a: 'We accept UPI, Credit Cards, Debit Cards, Net Banking, and all popular wallets through Razorpay. All payments are 100% secure.' },
   { q: 'Is there a free trial for Pro?', a: 'Yes! We offer a 7-day free trial for the Pro plan. No credit card required to start.' },
   { q: 'What happens to my designs if I downgrade?', a: 'Your designs remain published. If you have more than the free limit, older designs will remain visible but you won\'t be able to upload new ones until you free up space or upgrade again.' },
   { q: 'Do you offer refunds?', a: 'We offer a 30-day money-back guarantee on all paid plans. If you\'re not satisfied, contact support for a full refund.' },
 ]
 
+type PaymentStatus = 'idle' | 'loading' | 'success' | 'error'
+
 export default function PricingPage() {
   const { navigateTo, isLoggedIn, user, upgradeToPro } = useNavStore()
   const [isYearly, setIsYearly] = useState(false)
-  const [proMessage, setProMessage] = useState('')
-  const [showProDialog, setShowProDialog] = useState(false)
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('idle')
+  const [paymentMessage, setPaymentMessage] = useState('')
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
+
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true)
+        return
+      }
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }
+
+  const initiatePayment = async (planName: string, amount: number) => {
+    if (!isLoggedIn || !user) {
+      setPaymentStatus('error')
+      setPaymentMessage('Please sign in first to upgrade!')
+      setTimeout(() => navigateTo('auth'), 1500)
+      return
+    }
+
+    if (user?.isPro) {
+      setPaymentStatus('error')
+      setPaymentMessage('You are already a Pro member!')
+      setTimeout(() => setPaymentStatus('idle'), 3000)
+      return
+    }
+
+    setPaymentStatus('loading')
+    setPaymentMessage('Opening payment gateway...')
+    setSelectedPlan(planName)
+
+    try {
+      // Step 1: Create Razorpay order from our backend
+      const res = await fetch('/api/razorpay/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount,
+          currency: 'INR',
+          planName: isYearly ? `${planName} Yearly` : planName,
+          userId: user.id,
+        }),
+      })
+
+      const orderData = await res.json()
+
+      if (!res.ok) {
+        // If Razorpay not configured, show helpful message
+        if (orderData.error?.includes('not configured')) {
+          setPaymentStatus('error')
+          setPaymentMessage('Payment gateway is being set up. Please try again later or contact support.')
+          return
+        }
+        throw new Error(orderData.error || 'Failed to create order')
+      }
+
+      // Step 2: Load Razorpay script and open checkout
+      const scriptLoaded = await loadRazorpayScript()
+      if (!scriptLoaded) {
+        setPaymentStatus('error')
+        setPaymentMessage('Failed to load payment gateway. Please check your internet connection.')
+        return
+      }
+
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: 'Design Connect',
+        description: `${planName} Plan${isYearly ? ' (Yearly)' : ' (Monthly)'}`,
+        image: '/logo.svg',
+        order_id: orderData.orderId,
+        handler: async function (response: any) {
+          // Step 3: Verify payment on backend
+          setPaymentMessage('Verifying payment...')
+          try {
+            const verifyRes = await fetch('/api/razorpay/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                userId: user.id,
+                planName: isYearly ? `${planName} Yearly` : planName,
+              }),
+            })
+
+            const verifyData = await verifyRes.json()
+
+            if (verifyRes.ok && verifyData.success) {
+              // Payment successful! Upgrade user locally
+              upgradeToPro()
+              setPaymentStatus('success')
+              setPaymentMessage('Payment successful! Welcome to Pro! 🎉')
+            } else {
+              setPaymentStatus('error')
+              setPaymentMessage('Payment verification failed. Contact support with your payment ID.')
+            }
+          } catch (err) {
+            console.error('Verification error:', err)
+            setPaymentStatus('error')
+            setPaymentMessage('Payment received but verification failed. We will confirm shortly.')
+          }
+        },
+        prefill: {
+          name: user.name,
+          email: user.email,
+        },
+        theme: {
+          color: '#fb8000',
+        },
+        modal: {
+          ondismiss: function () {
+            setPaymentStatus('idle')
+            setPaymentMessage('Payment cancelled.')
+            setTimeout(() => setPaymentMessage(''), 3000)
+          },
+        },
+      }
+
+      const paymentObject = new window.Razorpay(options)
+      paymentObject.on('payment.failed', function (response: any) {
+        setPaymentStatus('error')
+        setPaymentMessage(`Payment failed: ${response.error.description}. Please try again.`)
+      })
+
+      paymentObject.open()
+
+    } catch (error: any) {
+      console.error('Payment initiation error:', error)
+      setPaymentStatus('error')
+      setPaymentMessage(error.message || 'Something went wrong. Please try again.')
+    }
+  }
 
   const handlePlanSelect = (planName: string) => {
-    setProMessage('')
+    setPaymentMessage('')
+    setPaymentStatus('idle')
+
     if (planName === 'Free') {
       if (isLoggedIn) {
-        setProMessage('You are already on the Free plan!')
+        setPaymentMessage('You are already on the Free plan!')
       } else {
         navigateTo('auth')
       }
     } else if (planName === 'Pro') {
-      if (isLoggedIn) {
-        if (user?.isPro) {
-          setProMessage('You are already a Pro member!')
-          return
-        }
-        setShowProDialog(true)
-      } else {
-        setProMessage('Please sign in first to upgrade to Pro!')
-        setTimeout(() => navigateTo('auth'), 1500)
-      }
-    } else {
+      const amount = isYearly ? plans[1].yearlyPrice : plans[1].monthlyPrice
+      initiatePayment('Pro', amount)
+    } else if (planName === 'Enterprise') {
       navigateTo('contact')
     }
-  }
-
-  const confirmUpgrade = () => {
-    upgradeToPro()
-    setShowProDialog(false)
-    setProMessage('Welcome to Pro! You now have unlimited access to all premium features.')
   }
 
   return (
@@ -139,7 +276,7 @@ export default function PricingPage() {
               </span>
             </h1>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-8">
-              Start free and scale as you grow. No hidden fees, cancel anytime.
+              Start free and scale as you grow. All prices are in INR. No hidden fees, cancel anytime.
             </p>
 
             {/* Billing Toggle */}
@@ -168,9 +305,37 @@ export default function PricingPage() {
         </div>
       </div>
 
+      {/* Payment Status Banner */}
+      <AnimatePresence>
+        {paymentMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={cn(
+              'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6',
+            )}
+          >
+            <div className={cn(
+              'p-4 rounded-xl flex items-center gap-3 border',
+              paymentStatus === 'loading' && 'bg-blue-50 text-blue-700 border-blue-200',
+              paymentStatus === 'success' && 'bg-green-50 text-green-700 border-green-200',
+              paymentStatus === 'error' && 'bg-red-50 text-red-700 border-red-200',
+              paymentStatus === 'idle' && 'bg-slate-50 text-slate-600 border-slate-200',
+            )}>
+              {paymentStatus === 'loading' && <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />}
+              {paymentStatus === 'success' && <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
+              {paymentStatus === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+              {paymentStatus === 'idle' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+              <span className="text-sm font-medium">{paymentMessage}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Plans Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-4 pb-16">
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-3 gap-6 mt-4">
           {plans.map((plan, i) => (
             <motion.div
               key={plan.name}
@@ -208,8 +373,9 @@ export default function PricingPage() {
 
                   <div className="mb-6">
                     <div className="flex items-baseline gap-1">
+                      <span className="text-sm font-medium">₹</span>
                       <span className="text-4xl font-bold">
-                        ${isYearly ? plan.yearlyPrice : plan.monthlyPrice}
+                        {isYearly ? plan.yearlyPrice : plan.monthlyPrice}
                       </span>
                       {plan.monthlyPrice > 0 && (
                         <span className="text-muted-foreground text-sm">
@@ -219,57 +385,16 @@ export default function PricingPage() {
                     </div>
                     {isYearly && plan.monthlyPrice > 0 && (
                       <p className="text-xs text-green-600 mt-1">
-                        ${(plan.yearlyPrice / 12).toFixed(2)}/month billed annually
+                        ₹{Math.round(plan.yearlyPrice / 12)}/month billed annually
                       </p>
                     )}
                   </div>
 
-                    {/* Pro Message */}
-                  {proMessage && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`mb-4 p-3 rounded-lg text-sm font-medium ${
-                        proMessage.includes('Welcome')
-                          ? 'bg-green-50 text-green-700 border border-green-200'
-                          : proMessage.includes('already')
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                          : 'bg-orange-50 text-orange-700 border border-orange-200'
-                      }`}
-                    >
-                      {proMessage}
-                    </motion.div>
-                  )}
-
-                  {/* Pro Upgrade Dialog */}
-                  {showProDialog && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="mb-6 p-4 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200"
-                    >
-                      <h4 className="font-bold text-sm mb-1">Upgrade to Pro</h4>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Get unlimited uploads, Pro badge, featured placement & more for just {isYearly ? '$79.99/year' : '$9.99/month'}.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          className="flex-1 gradient-orange text-white border-0 text-xs"
-                          onClick={confirmUpgrade}
-                        >
-                          Confirm Upgrade
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => setShowProDialog(false)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </motion.div>
+                  {plan.monthlyPrice > 0 && (
+                    <div className="flex items-center gap-2 mb-4 text-xs text-muted-foreground">
+                      <Shield className="w-3 h-3" />
+                      <span>Secure payment via Razorpay (UPI, Cards, Net Banking)</span>
+                    </div>
                   )}
 
                   <Button
@@ -277,11 +402,20 @@ export default function PricingPage() {
                       'w-full mb-6',
                       plan.popular
                         ? 'gradient-orange gradient-orange-hover text-white border-0'
-                        : 'border'
+                        : 'border',
+                      paymentStatus === 'loading' && selectedPlan === plan.name && 'opacity-70 pointer-events-none'
                     )}
                     onClick={() => handlePlanSelect(plan.name)}
+                    disabled={paymentStatus === 'loading' && selectedPlan === plan.name}
                   >
-                    {plan.cta}
+                    {paymentStatus === 'loading' && selectedPlan === plan.name ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      plan.cta
+                    )}
                   </Button>
 
                   <div className="space-y-3">
