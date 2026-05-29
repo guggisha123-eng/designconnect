@@ -30,6 +30,8 @@ interface Design {
   id: string
   title: string
   thumbnail: string
+  thumbnail_url: string | null
+  image_urls: string[] | null
   category: string
   designer_name: string
   like_count: number
@@ -67,8 +69,8 @@ export default function BrowsePage() {
         const supabase = createClient()
         let query = supabase
           .from('designs')
-          .select('id, title, thumbnail, category, like_count, view_count, download_count, is_free, price, created_at, users!designs_designer_id_fkey(name)')
-          .eq('status', 'active')
+          .select('id, title, thumbnail, thumbnail_url, image_urls, category, like_count, view_count, download_count, is_free, price, created_at, users!designs_designer_id_fkey(name)')
+          .neq('status', 'rejected')
 
         if (localSearch.trim()) {
           query = query.or(`title.ilike.%${localSearch}%,category.ilike.%${localSearch}%`)
@@ -102,6 +104,8 @@ export default function BrowsePage() {
             id: d.id,
             title: d.title,
             thumbnail: d.thumbnail,
+            thumbnail_url: d.thumbnail_url || d.image_urls?.[0] || null,
+            image_urls: d.image_urls || null,
             category: d.category,
             designer_name: d.users?.name || 'Unknown',
             like_count: d.like_count || 0,
@@ -326,11 +330,15 @@ export default function BrowsePage() {
                   {viewMode === 'grid' ? (
                     <>
                       <div className="aspect-[4/3] bg-gradient-to-br from-orange-100 to-amber-50 relative overflow-hidden">
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-4xl opacity-30">
-                            {['🎨', '✏️', '📱', '🧊', '🖼️', '🔤', '🖨️', '🎬'][i % 8]}
+                        {design.thumbnail_url ? (
+                          <img src={design.thumbnail_url} alt={design.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="text-4xl opacity-30">
+                              {['🎨', '✏️', '📱', '🧊', '🖼️', '🔤', '🖨️', '🎬'][i % 8]}
+                            </div>
                           </div>
-                        </div>
+                        )}
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                         {design.is_free && (
                           <Badge className="absolute top-3 left-3 bg-green-500 text-white border-0">
@@ -358,8 +366,14 @@ export default function BrowsePage() {
                     </>
                   ) : (
                     <CardContent className="p-4 flex gap-4">
-                      <div className="w-24 h-24 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex-shrink-0 flex items-center justify-center">
-                        <span className="text-2xl opacity-30">{['🎨', '✏️', '📱', '🧊'][i % 4]}</span>
+                      <div className="w-24 h-24 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex-shrink-0 overflow-hidden">
+                        {design.thumbnail_url ? (
+                          <img src={design.thumbnail_url} alt={design.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-2xl opacity-30">{['🎨', '✏️', '📱', '🧊'][i % 4]}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-sm line-clamp-1">{design.title}</h3>

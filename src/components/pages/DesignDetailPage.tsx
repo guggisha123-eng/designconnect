@@ -21,6 +21,8 @@ interface DesignDetail {
   title: string
   description: string
   thumbnail: string
+  thumbnail_url: string | null
+  image_urls: string[] | null
   preview_images: string[]
   category: string
   subcategory: string
@@ -80,11 +82,14 @@ export default function DesignDetailPage() {
           .single()
 
         if (data && !error) {
+          const imageUrls = data.image_urls || []
           setDesign({
             id: data.id,
             title: data.title,
             description: data.description || 'No description available.',
             thumbnail: data.thumbnail,
+            thumbnail_url: data.thumbnail_url || imageUrls[0] || null,
+            image_urls: imageUrls,
             preview_images: data.preview_images ? JSON.parse(data.preview_images) : [],
             category: data.category || 'Design',
             subcategory: data.subcategory || '',
@@ -235,8 +240,14 @@ export default function DesignDetailPage() {
           {/* Image Section */}
           <div className="lg:col-span-3">
             <Card className="border-0 overflow-hidden shadow-sm">
-              <div className="aspect-[16/10] bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center relative">
-                <span className="text-6xl opacity-30">🎨</span>
+              <div className="aspect-[16/10] bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center relative overflow-hidden">
+                {design.thumbnail_url ? (
+                  <img src={design.thumbnail_url} alt={design.title} className="w-full h-full object-cover" />
+                ) : design.image_urls && design.image_urls.length > 0 && design.image_urls[currentImageIndex] ? (
+                  <img src={design.image_urls[currentImageIndex]} alt={design.title} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-6xl opacity-30">🎨</span>
+                )}
                 {design.is_free && (
                   <Badge className="absolute top-4 left-4 bg-green-500 text-white border-0">Free</Badge>
                 )}
@@ -245,15 +256,15 @@ export default function DesignDetailPage() {
 
             {/* Image Navigation */}
             <div className="flex gap-2 mt-3 overflow-x-auto custom-scrollbar">
-              {[0, 1, 2].map((i) => (
+              {(design.image_urls && design.image_urls.length > 0 ? design.image_urls : [design.thumbnail_url]).filter(Boolean).map((url, i) => (
                 <div
                   key={i}
                   onClick={() => setCurrentImageIndex(i)}
-                  className={`w-20 h-14 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center cursor-pointer flex-shrink-0 transition-all ${
+                  className={`w-20 h-14 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center cursor-pointer flex-shrink-0 transition-all overflow-hidden ${
                     currentImageIndex === i ? 'ring-2 ring-[#fb8000]' : 'opacity-60 hover:opacity-100'
                   }`}
                 >
-                  <span className="text-lg opacity-30">🎨</span>
+                  <img src={url} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
                 </div>
               ))}
             </div>
