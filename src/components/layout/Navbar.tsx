@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useNavStore, type Page } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/client'
 
 const navLinks: { label: string; page: Page }[] = [
   { label: 'Home', page: 'home' },
@@ -38,6 +39,19 @@ export default function Navbar() {
       setSearchOpen(false)
       setLocalSearch('')
     }
+  }
+
+  const handleSignOut = async () => {
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.error('Supabase sign out error:', err)
+    }
+    logout()
+    setUserMenuOpen(false)
+    setMobileOpen(false)
+    navigateTo('auth')
   }
 
   return (
@@ -167,11 +181,7 @@ export default function Navbar() {
                           </div>
                           <div className="p-1 border-t border-border/50">
                             <button
-                              onClick={() => {
-                                logout()
-                                setUserMenuOpen(false)
-                                navigateTo('home')
-                              }}
+                              onClick={handleSignOut}
                               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                             >
                               <LogOut className="w-4 h-4" /> Sign Out
@@ -306,11 +316,7 @@ export default function Navbar() {
                         <Upload className="w-4 h-4" /> Upload
                       </button>
                       <button
-                        onClick={() => {
-                          logout()
-                          setMobileOpen(false)
-                          navigateTo('home')
-                        }}
+                        onClick={handleSignOut}
                         className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-red-50 rounded-xl"
                       >
                         <LogOut className="w-4 h-4" /> Sign Out
