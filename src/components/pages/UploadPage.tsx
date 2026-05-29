@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, Image, FileText, Tag, Check, ChevronRight,
@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { createClient } from '@/lib/supabase/client'
 
 const designCategories = [
   'Logo Design', 'UI/UX Design', 'Illustrations', 'Typography',
@@ -26,9 +27,10 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Step 1: Images
-  const [images, setImages] = useState<string[]>([])
+  // Step 1: Images (store actual File objects)
+  const [imageFiles, setImageFiles] = useState<File[]>([])
   const [imagePreviews, setImagePreviews] = useState<string[]>([])
 
   // Step 2: Details
@@ -41,6 +43,7 @@ export default function UploadPage() {
   const [isFree, setIsFree] = useState(true)
   const [price, setPrice] = useState('')
   const [sourceFiles, setSourceFiles] = useState('')
+  const [uploadProgress, setUploadProgress] = useState('')
 
   if (!isLoggedIn) {
     return (
@@ -64,6 +67,10 @@ export default function UploadPage() {
     if (!files) return
 
     Array.from(files).forEach((file) => {
+      // Store actual File object
+      setImageFiles(prev => [...prev, file])
+
+      // Create preview URL
       const reader = new FileReader()
       reader.onload = (ev) => {
         const result = ev.target?.result as string
@@ -71,34 +78,85 @@ export default function UploadPage() {
       }
       reader.readAsDataURL(file)
     })
+
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const removeImage = (index: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index))
     setImagePreviews(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleSubmit = async () => {
+    if (!title.trim() || !category) {
+      setError('Title and Category are required')
+      return
+    }
+
+    if (imageFiles.length === 0) {
+      setError('Please upload at least one image')
+      return
+    }
+
     setError('')
     setLoading(true)
+    setUploadProgress('Preparing upload...')
 
     try {
-      // In a real app, upload to Supabase Storage first, then insert design record
-      const { createClient } = await import('@/lib/supabase/client')
+      // Get authenticated user from Supabase
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
 
       if (!user) {
-        setError('Please sign in to upload')
+        setError('Please sign in again to upload')
+        setLoading(false)
         return
       }
 
-      // Simulate upload with delay
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      setUploadProgress('Uploading images...')
 
+      // Build FormData with actual files
+      const formData = new FormData()
+      formData.append('userId', user.id)
+      formData.append('title', title.trim())
+      formData.append('description', description.trim())
+      formData.append('category', category)
+      formData.append('subcategory', subcategory.trim())
+      formData.append('isFree', String(isFree))
+      formData.append('price', price || '0')
+      formData.append('sourceFiles', sourceFiles.trim())
+
+      imageFiles.forEach((file) => {
+        formData.append('images', file)
+      })
+
+      // Call our API route
+      const response = await fetch('/api/upload-design', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed')
+      }
+
+      setUploadProgress('')
       setSuccess(true)
-      setTimeout(() => navigateTo('dashboard'), 2000)
-    } catch {
-      setError('Upload failed. Please try again.')
+    } catch (err: any) {
+      console.error('Upload error:', err)
+      setUploadProgress('')
+
+      // Check if it's a storage bucket issue
+      if (err.message?.includes('bucket') || err.message?.includes('storage')) {
+        setError('Storage is being configured. Please try again in a moment.')
+      } else {
+        setError(err.message || 'Upload failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -116,11 +174,16 @@ export default function UploadPage() {
         </motion.div>
         <h2 className="text-2xl font-bold">Design Published!</h2>
         <p className="text-muted-foreground text-center max-w-md">
-          Your design has been successfully published and is now visible to the community.
+          Your design has been saved and is now visible on your dashboard and in the browse section.
         </p>
-        <Button onClick={() => navigateTo('dashboard')} className="gradient-orange gradient-orange-hover text-white border-0">
-          Go to Dashboard
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => navigateTo('browse')}>
+            Browse Designs
+          </Button>
+          <Button onClick={() => navigateTo('dashboard')} className="gradient-orange gradient-orange-hover text-white border-0">
+            Go to Dashboard
+          </Button>
+        </div>
       </div>
     )
   }
@@ -171,7 +234,8 @@ export default function UploadPage() {
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl">
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl flex items-center gap-2">
+            <X className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
         )}
@@ -191,17 +255,18 @@ export default function UploadPage() {
                   <div>
                     <h2 className="text-xl font-bold mb-2">Upload Your Design</h2>
                     <p className="text-muted-foreground text-sm mb-6">
-                      Upload screenshots, mockups, or source files for your design. Accepts PNG, JPG, SVG, and PDF.
+                      Upload screenshots, mockups, or source files. Accepts PNG, JPG, SVG, and PDF.
                     </p>
 
                     <div
                       className="border-2 border-dashed border-muted-foreground/20 rounded-2xl p-12 text-center hover:border-[#fb8000]/50 transition-colors cursor-pointer"
-                      onClick={() => document.getElementById('file-upload')?.click()}
+                      onClick={() => fileInputRef.current?.click()}
                     >
                       <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                       <p className="font-medium mb-1">Click to upload or drag and drop</p>
                       <p className="text-sm text-muted-foreground">PNG, JPG, SVG, PDF up to 50MB</p>
                       <input
+                        ref={fileInputRef}
                         id="file-upload"
                         type="file"
                         multiple
@@ -242,7 +307,7 @@ export default function UploadPage() {
                   <div className="space-y-6">
                     <h2 className="text-xl font-bold mb-2">Design Details</h2>
                     <p className="text-muted-foreground text-sm mb-6">
-                      Add a title and description for your design to help others discover it.
+                      Add a title and description for your design.
                     </p>
 
                     <div>
@@ -326,7 +391,7 @@ export default function UploadPage() {
                               : 'border-transparent bg-muted text-muted-foreground'
                           }`}
                         >
-                          🆓 Free Download
+                          Free Download
                         </button>
                         <button
                           onClick={() => setIsFree(false)}
@@ -336,7 +401,7 @@ export default function UploadPage() {
                               : 'border-transparent bg-muted text-muted-foreground'
                           }`}
                         >
-                          💰 Paid Download
+                          Paid Download
                         </button>
                       </div>
                       {!isFree && (
@@ -397,7 +462,7 @@ export default function UploadPage() {
                         <Card className="border-0 bg-slate-50">
                           <CardContent className="p-4 text-center">
                             <p className="text-xs text-muted-foreground mb-1">Files</p>
-                            <p className="font-bold text-sm">{imagePreviews.length} image(s)</p>
+                            <p className="font-bold text-sm">{imageFiles.length} image(s)</p>
                           </CardContent>
                         </Card>
                         <Card className="border-0 bg-slate-50">
@@ -431,12 +496,20 @@ export default function UploadPage() {
           </motion.div>
         </AnimatePresence>
 
+        {/* Upload Progress */}
+        {uploadProgress && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-xl flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {uploadProgress}
+          </div>
+        )}
+
         {/* Navigation */}
         <div className="flex justify-between mt-6">
           <Button
             variant="outline"
             onClick={() => setStep(s => s - 1)}
-            disabled={step <= 1}
+            disabled={step <= 1 || loading}
             className="gap-2"
           >
             <ChevronLeft className="w-4 h-4" /> Previous
@@ -451,7 +524,7 @@ export default function UploadPage() {
           ) : (
             <Button
               onClick={handleSubmit}
-              disabled={loading || !title || !category}
+              disabled={loading || !title || !category || imageFiles.length === 0}
               className="gradient-orange gradient-orange-hover text-white border-0 gap-2"
             >
               {loading ? (

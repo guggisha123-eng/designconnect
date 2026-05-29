@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Eye, Heart, Download, DollarSign, Users,
   Palette, Star, TrendingUp, ShoppingBag, MessageSquare,
-  Settings, Upload, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
+  Settings, Upload, BarChart3, PieChart, ArrowUpRight,
   Clock, FileText, CreditCard, ShieldCheck
 } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
@@ -14,8 +14,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Progress } from '@/components/ui/progress'
 import { createClient } from '@/lib/supabase/client'
+
+interface DesignItem {
+  id: string
+  title: string
+  thumbnail_url: string | null
+  image_urls: string[] | null
+  view_count: number
+  like_count: number
+  download_count: number
+  is_free: boolean
+  price: number
+  status: string
+  created_at: string
+}
+
+interface OrderItem {
+  id: string
+  amount: number
+  status: string
+  created_at: string
+  designs?: { title: string } | null
+}
 
 interface Stats {
   totalDesigns: number
@@ -23,8 +44,8 @@ interface Stats {
   totalLikes: number
   totalDownloads: number
   earnings: number
-  recentOrders: any[]
-  recentDesigns: any[]
+  recentOrders: OrderItem[]
+  recentDesigns: DesignItem[]
 }
 
 export default function DashboardPage() {
@@ -52,39 +73,46 @@ export default function DashboardPage() {
           const role = user?.role || 'designer'
 
           if (role === 'designer' || role === 'admin') {
-            const { data: designs } = await supabase
+            // Fetch user's designs
+            const { data: designs, error: designError } = await supabase
               .from('designs')
-              .select('id, title, view_count, like_count, download_count, created_at')
+              .select('id, title, thumbnail_url, image_urls, view_count, like_count, download_count, is_free, price, status, created_at')
               .eq('designer_id', authUser.id)
               .order('created_at', { ascending: false })
-              .limit(10)
+              .limit(50)
 
-            const { data: orders } = await supabase
-              .from('orders')
-              .select('id, amount, status, created_at, designs!orders_design_id_fkey(title)')
-              .eq('designer_id', authUser.id)
-              .order('created_at', { ascending: false })
-              .limit(5)
+            if (!designError && designs) {
+              const totalViews = designs.reduce((sum, d) => sum + (d.view_count || 0), 0)
+              const totalLikes = designs.reduce((sum, d) => sum + (d.like_count || 0), 0)
+              const totalDownloads = designs.reduce((sum, d) => sum + (d.download_count || 0), 0)
 
-            const totalDesigns = designs?.length || 0
-            const totalViews = designs?.reduce((sum, d) => sum + (d.view_count || 0), 0) || 0
-            const totalLikes = designs?.reduce((sum, d) => sum + (d.like_count || 0), 0) || 0
-            const totalDownloads = designs?.reduce((sum, d) => sum + (d.download_count || 0), 0) || 0
-            const earnings = orders?.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.amount || 0), 0) || 0
+              // Fetch orders
+              let orders: OrderItem[] = []
+              const { data: orderData } = await supabase
+                .from('orders')
+                .select('id, amount, status, created_at')
+                .eq('designer_id', authUser.id)
+                .order('created_at', { ascending: false })
+                .limit(10)
 
-            setStats({
-              totalDesigns,
-              totalViews,
-              totalLikes,
-              totalDownloads,
-              earnings,
-              recentOrders: orders || [],
-              recentDesigns: designs || [],
-            })
+              if (orderData) orders = orderData
+
+              const earnings = orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.amount || 0), 0)
+
+              setStats({
+                totalDesigns: designs.length,
+                totalViews,
+                totalLikes,
+                totalDownloads,
+                earnings,
+                recentOrders: orders,
+                recentDesigns: designs as DesignItem[],
+              })
+            }
           }
         }
-      } catch {
-        // Use zero stats
+      } catch (err) {
+        console.error('Dashboard fetch error:', err)
       } finally {
         setLoading(false)
       }
@@ -96,11 +124,11 @@ export default function DashboardPage() {
   if (!isLoggedIn) return null
 
   const designerStats = [
-    { label: 'Total Designs', value: stats.totalDesigns, icon: Palette, color: 'text-blue-500', bgColor: 'bg-blue-100', change: '+12%' },
+    { label: 'Total Designs', value: stats.totalDesigns, icon: Palette, color: 'text-blue-500', bgColor: 'bg-blue-100', change: stats.totalDesigns > 0 ? `+${stats.totalDesigns}` : '0' },
     { label: 'Total Views', value: stats.totalViews.toLocaleString(), icon: Eye, color: 'text-green-500', bgColor: 'bg-green-100', change: '+8%' },
     { label: 'Total Likes', value: stats.totalLikes.toLocaleString(), icon: Heart, color: 'text-red-500', bgColor: 'bg-red-100', change: '+15%' },
     { label: 'Downloads', value: stats.totalDownloads.toLocaleString(), icon: Download, color: 'text-purple-500', bgColor: 'bg-purple-100', change: '+5%' },
-    { label: 'Earnings', value: `$${stats.earnings.toFixed(2)}`, icon: DollarSign, color: 'text-amber-500', bgColor: 'bg-amber-100', change: '+20%' },
+    { label: 'Earnings', value: `$${stats.earnings.toFixed(2)}`, icon: DollarSign, color: 'text-amber-500', bgColor: 'bg-amber-100', change: stats.earnings > 0 ? `+$${stats.earnings.toFixed(0)}` : '$0' },
     { label: 'Rating', value: '4.8/5', icon: Star, color: 'text-orange-500', bgColor: 'bg-orange-100', change: '+0.2' },
   ]
 
@@ -193,27 +221,15 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex-col gap-2"
-                    onClick={() => navigateTo('upload')}
-                  >
+                  <Button variant="outline" className="h-auto p-4 flex-col gap-2" onClick={() => navigateTo('upload')}>
                     <Upload className="w-5 h-5 text-[#fb8000]" />
                     <span className="text-sm">Upload Design</span>
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex-col gap-2"
-                    onClick={() => navigateTo('pricing')}
-                  >
+                  <Button variant="outline" className="h-auto p-4 flex-col gap-2" onClick={() => navigateTo('pricing')}>
                     <Star className="w-5 h-5 text-amber-500" />
                     <span className="text-sm">Upgrade to Pro</span>
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="h-auto p-4 flex-col gap-2"
-                    onClick={() => navigateTo('browse')}
-                  >
+                  <Button variant="outline" className="h-auto p-4 flex-col gap-2" onClick={() => navigateTo('browse')}>
                     <Eye className="w-5 h-5 text-blue-500" />
                     <span className="text-sm">Browse Designs</span>
                   </Button>
@@ -230,19 +246,34 @@ export default function DashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {stats.recentDesigns.length > 0 ? (
+                  {loading ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      Loading designs...
+                    </div>
+                  ) : stats.recentDesigns.length > 0 ? (
                     <div className="space-y-3">
-                      {stats.recentDesigns.slice(0, 5).map((d: any) => (
-                        <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors">
-                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center flex-shrink-0">
-                            <Palette className="w-5 h-5 text-orange-400" />
-                          </div>
+                      {stats.recentDesigns.slice(0, 5).map((d) => (
+                        <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors cursor-pointer"
+                          onClick={() => {
+                            useNavStore.getState().setSelectedDesignId(d.id)
+                            navigateTo('design-detail')
+                          }}>
+                          {d.thumbnail_url ? (
+                            <img src={d.thumbnail_url} alt={d.title} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center flex-shrink-0">
+                              <Palette className="w-5 h-5 text-orange-400" />
+                            </div>
+                          )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium line-clamp-1">{d.title}</p>
                             <p className="text-xs text-muted-foreground">
-                              {d.view_count} views · {d.like_count} likes · {d.download_count} downloads
+                              {d.view_count || 0} views · {d.like_count || 0} likes · {d.download_count || 0} downloads
                             </p>
                           </div>
+                          <Badge variant="secondary" className="text-xs flex-shrink-0">
+                            {d.is_free ? 'Free' : `$${d.price}`}
+                          </Badge>
                         </div>
                       ))}
                     </div>
@@ -266,7 +297,7 @@ export default function DashboardPage() {
                 <CardContent>
                   {stats.recentOrders.length > 0 ? (
                     <div className="space-y-3">
-                      {stats.recentOrders.slice(0, 5).map((o: any) => (
+                      {stats.recentOrders.slice(0, 5).map((o) => (
                         <div key={o.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors">
                           <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
                             <DollarSign className="w-5 h-5 text-green-600" />
@@ -301,34 +332,44 @@ export default function DashboardPage() {
           <TabsContent value="designs">
             <Card className="border-0 shadow-sm">
               <CardContent className="p-6">
-                {stats.recentDesigns.length > 0 ? (
-                  <div className="space-y-3">
-                    {stats.recentDesigns.map((d: any) => (
-                      <div key={d.id} className="flex items-center gap-4 p-4 rounded-xl hover:bg-muted transition-colors">
-                        <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center flex-shrink-0">
-                          <Palette className="w-8 h-8 text-orange-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium">{d.title}</p>
-                          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                            <span>{d.view_count} views</span>
-                            <span>{d.like_count} likes</span>
-                            <span>{d.download_count} downloads</span>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                {loading ? (
+                  <div className="text-center py-12 text-muted-foreground">Loading...</div>
+                ) : stats.recentDesigns.length > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground mb-4">{stats.totalDesigns} design(s) uploaded</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {stats.recentDesigns.map((d) => (
+                        <div key={d.id} className="rounded-xl overflow-hidden border bg-white hover:shadow-lg transition-all cursor-pointer group"
                           onClick={() => {
                             useNavStore.getState().setSelectedDesignId(d.id)
                             navigateTo('design-detail')
-                          }}
-                        >
-                          View
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                          }}>
+                          {/* Thumbnail */}
+                          <div className="aspect-video bg-gradient-to-br from-orange-100 to-amber-50 relative overflow-hidden">
+                            {d.thumbnail_url ? (
+                              <img src={d.thumbnail_url} alt={d.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Palette className="w-8 h-8 text-orange-300" />
+                              </div>
+                            )}
+                            <Badge className="absolute top-2 right-2 text-xs" variant={d.is_free ? 'secondary' : 'default'}>
+                              {d.is_free ? 'Free' : `$${d.price}`}
+                            </Badge>
+                          </div>
+                          {/* Info */}
+                          <div className="p-3">
+                            <p className="font-medium text-sm line-clamp-1">{d.title}</p>
+                            <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{d.view_count || 0}</span>
+                              <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{d.like_count || 0}</span>
+                              <span className="flex items-center gap-1"><Download className="w-3 h-3" />{d.download_count || 0}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 ) : (
                   <div className="text-center py-12">
                     <Palette className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -350,7 +391,7 @@ export default function DashboardPage() {
               <CardContent className="p-6">
                 {stats.recentOrders.length > 0 ? (
                   <div className="space-y-3">
-                    {stats.recentOrders.map((o: any) => (
+                    {stats.recentOrders.map((o) => (
                       <div key={o.id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50">
                         <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
                           <DollarSign className="w-5 h-5 text-green-600" />
