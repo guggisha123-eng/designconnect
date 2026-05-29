@@ -1,16 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, Heart, Eye, Download, Share2, MessageSquare, Flag
+  ArrowLeft, Heart, Eye, Download, Share2, MessageSquare, Flag,
+  Bookmark, Copy, ExternalLink, Check
 } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
-import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured, createClient } from '@/lib/supabase/client'
 
 interface DesignDetail {
   id: string
@@ -28,6 +29,7 @@ interface DesignDetail {
   view_count: number
   download_count: number
   like_count: number
+  reference_count: number
   created_at: string
   designer: {
     id: string
@@ -45,20 +47,60 @@ interface Comment {
   created_at: string
 }
 
+// Local storage keys for demo mode
+function getLocalLikes(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem('dc_likes') || '{}') } catch { return {} }
+}
+function saveLocalLikes(likes: Record<string, boolean>) {
+  if (typeof window !== 'undefined') localStorage.setItem('dc_likes', JSON.stringify(likes))
+}
+function getLocalSaves(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem('dc_saves') || '{}') } catch { return {} }
+}
+function saveLocalSaves(saves: Record<string, boolean>) {
+  if (typeof window !== 'undefined') localStorage.setItem('dc_saves', JSON.stringify(saves))
+}
+function getLocalReferences(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem('dc_references') || '{}') } catch { return {} }
+}
+function saveLocalReferences(refs: Record<string, boolean>) {
+  if (typeof window !== 'undefined') localStorage.setItem('dc_references', JSON.stringify(refs))
+}
+
 export default function DesignDetailPage() {
   const navigateTo = useNavStore((s) => s.navigateTo)
   const selectedDesignId = useNavStore((s) => s.selectedDesignId)
   const setSelectedDesignerId = useNavStore((s) => s.setSelectedDesignerId)
   const isLoggedIn = useNavStore((s) => s.isLoggedIn)
+  const user = useNavStore((s) => s.user)
 
   const [design, setDesign] = useState<DesignDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
   const [liked, setLiked] = useState(false)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [saved, setSaved] = useState(false)
+  const [referenced, setReferenced] = useState(false)
   const [submittingComment, setSubmittingComment] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [shareMsg, setShareMsg] = useState('')
 
+  // Load saved states from localStorage
+  useEffect(() => {
+    if (selectedDesignId) {
+      const likes = getLocalLikes()
+      const saves = getLocalSaves()
+      const refs = getLocalReferences()
+      if (likes[selectedDesignId]) setLiked(true)
+      if (saves[selectedDesignId]) setSaved(true)
+      if (refs[selectedDesignId]) setReferenced(true)
+    }
+  }, [selectedDesignId])
+
+  // Fetch design
   useEffect(() => {
     if (!selectedDesignId) {
       navigateTo('browse')
@@ -95,6 +137,7 @@ export default function DesignDetailPage() {
             view_count: (data.view_count || 0) + 1,
             download_count: data.download_count || 0,
             like_count: data.like_count || 0,
+            reference_count: data.reference_count || 0,
             created_at: data.created_at,
             designer: {
               id: data.users?.id || '',
@@ -105,10 +148,12 @@ export default function DesignDetailPage() {
           })
 
           // Increment view count
-          await supabase
-            .from('designs')
-            .update({ view_count: data.view_count + 1 })
-            .eq('id', data.id)
+          try {
+            await supabase
+              .from('designs')
+              .update({ view_count: data.view_count + 1 })
+              .eq('id', data.id)
+          } catch { /* ignore */ }
         } else {
           // Fallback sample design
           setDesign({
@@ -125,6 +170,7 @@ export default function DesignDetailPage() {
             view_count: 1234,
             download_count: 456,
             like_count: 78,
+            reference_count: 23,
             created_at: new Date().toISOString(),
             designer: {
               id: 'designer-1',
@@ -136,21 +182,23 @@ export default function DesignDetailPage() {
         }
 
         // Fetch comments
-        const { data: commentData } = await supabase
-          .from('comments')
-          .select('*, users!comments_user_id_fkey(name, avatar)')
-          .eq('design_id', selectedDesignId)
-          .order('created_at', { ascending: false })
+        try {
+          const { data: commentData } = await supabase
+            .from('comments')
+            .select('*, users!comments_user_id_fkey(name, avatar)')
+            .eq('design_id', selectedDesignId)
+            .order('created_at', { ascending: false })
 
-        if (commentData) {
-          setComments(commentData.map((c: any) => ({
-            id: c.id,
-            content: c.content,
-            user_name: c.users?.name || 'Anonymous',
-            user_avatar: c.users?.avatar || null,
-            created_at: c.created_at,
-          })))
-        }
+          if (commentData) {
+            setComments(commentData.map((c: any) => ({
+              id: c.id,
+              content: c.content,
+              user_name: c.users?.name || 'Anonymous',
+              user_avatar: c.users?.avatar || null,
+              created_at: c.created_at,
+            })))
+          }
+        } catch { /* ignore */ }
       } catch {
         // Already have fallback above
       } finally {
@@ -161,20 +209,125 @@ export default function DesignDetailPage() {
     fetchDesign()
   }, [selectedDesignId])
 
+  // Like handler
+  const handleLike = useCallback(async () => {
+    if (!design) return
+    if (!isLoggedIn) { navigateTo('auth'); return }
+
+    const newLiked = !liked
+
+    // Update local state immediately
+    setLiked(newLiked)
+    setDesign(prev => prev ? {
+      ...prev,
+      like_count: prev.like_count + (newLiked ? 1 : -1)
+    } : null)
+
+    // Save to localStorage
+    const likes = getLocalLikes()
+    if (newLiked) likes[design.id] = true
+    else delete likes[design.id]
+    saveLocalLikes(likes)
+
+    // Try Supabase if configured
+    if (isSupabaseConfigured && user) {
+      try {
+        const supabase = createClient()
+        if (newLiked) {
+          await supabase.from('likes').insert({ design_id: design.id, user_id: user.id })
+          await supabase.from('designs').update({ like_count: design.like_count + 1 }).eq('id', design.id)
+        } else {
+          await supabase.from('likes').delete().eq('design_id', design.id).eq('user_id', user.id)
+          await supabase.from('designs').update({ like_count: Math.max(0, design.like_count - 1) }).eq('id', design.id)
+        }
+      } catch { /* local state already updated */ }
+    }
+  }, [design, liked, isLoggedIn, user, navigateTo])
+
+  // Save handler
+  const handleSave = useCallback(async () => {
+    if (!design) return
+    if (!isLoggedIn) { navigateTo('auth'); return }
+
+    const newSaved = !saved
+    setSaved(newSaved)
+
+    // Save to localStorage
+    const saves = getLocalSaves()
+    if (newSaved) saves[design.id] = true
+    else delete saves[design.id]
+    saveLocalSaves(saves)
+
+    setShareMsg(newSaved ? 'Saved to collection!' : 'Removed from collection')
+    setTimeout(() => setShareMsg(''), 2000)
+  }, [design, saved, isLoggedIn, navigateTo])
+
+  // Reference handler
+  const handleReference = useCallback(async () => {
+    if (!design) return
+    if (!isLoggedIn) { navigateTo('auth'); return }
+
+    const newRef = !referenced
+    setReferenced(newRef)
+
+    // Save to localStorage
+    const refs = getLocalReferences()
+    if (newRef) refs[design.id] = true
+    else delete refs[design.id]
+    saveLocalReferences(refs)
+
+    // Update reference count
+    setDesign(prev => prev ? {
+      ...prev,
+      reference_count: prev.reference_count + (newRef ? 1 : -1)
+    } : null)
+
+    setShareMsg(newRef ? 'Added to references!' : 'Removed from references')
+    setTimeout(() => setShareMsg(''), 2000)
+
+    // Try Supabase
+    if (isSupabaseConfigured && user) {
+      try {
+        const supabase = createClient()
+        if (newRef) {
+          await supabase.from('design_references').insert({ design_id: design.id, user_id: user.id })
+          await supabase.from('designs').update({ reference_count: (design.reference_count || 0) + 1 }).eq('id', design.id)
+        } else {
+          await supabase.from('design_references').delete().eq('design_id', design.id).eq('user_id', user.id)
+          await supabase.from('designs').update({ reference_count: Math.max(0, (design.reference_count || 0) - 1) }).eq('id', design.id)
+        }
+      } catch { /* local state already updated */ }
+    }
+  }, [design, referenced, isLoggedIn, user, navigateTo])
+
+  // Share handler
+  const handleShare = useCallback(async () => {
+    const url = typeof window !== 'undefined' ? window.location.href : ''
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setShareMsg('Link copied!')
+      setTimeout(() => { setCopied(false); setShareMsg('') }, 2000)
+    } catch {
+      setShareMsg('Could not copy link')
+      setTimeout(() => setShareMsg(''), 2000)
+    }
+  }, [])
+
   const handleComment = async () => {
     if (!newComment.trim() || !isLoggedIn) return
     setSubmittingComment(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) return
 
       const { data } = await supabase
         .from('comments')
         .insert({
           content: newComment,
           design_id: selectedDesignId,
-          user_id: user.id,
+          user_id: authUser.id,
         })
         .select('*, users!comments_user_id_fkey(name, avatar)')
         .single()
@@ -194,7 +347,7 @@ export default function DesignDetailPage() {
       setComments(prev => [{
         id: `local-${Date.now()}`,
         content: newComment,
-        user_name: 'You',
+        user_name: user?.name || 'You',
         user_avatar: null,
         created_at: new Date().toISOString(),
       }, ...prev])
@@ -232,7 +385,7 @@ export default function DesignDetailPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Browse
         </button>
 
-        {/* Title & Meta - Above images like Behance */}
+        {/* Title & Meta */}
         <div className="mb-6">
           <h1 className="text-2xl lg:text-3xl font-bold mb-3">{design.title}</h1>
           <div className="flex flex-wrap items-center gap-3">
@@ -253,15 +406,33 @@ export default function DesignDetailPage() {
                 <p className="text-xs text-muted-foreground">{design.designer.bio || 'Designer'}</p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground ml-auto">
-              <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> {design.like_count}</span>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground ml-auto flex-wrap">
+              <span className="flex items-center gap-1">
+                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
+                {design.like_count}
+              </span>
               <span className="mx-1">·</span>
               <span className="flex items-center gap-1"><Eye className="w-4 h-4" /> {design.view_count}</span>
               <span className="mx-1">·</span>
               <span className="flex items-center gap-1"><Download className="w-4 h-4" /> {design.download_count}</span>
+              <span className="mx-1">·</span>
+              <span className="flex items-center gap-1">
+                <ExternalLink className="w-4 h-4" /> {design.reference_count}
+              </span>
             </div>
           </div>
         </div>
+
+        {/* Feedback message toast */}
+        {shareMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg"
+          >
+            {shareMsg}
+          </motion.div>
+        )}
 
         {/* Behance Style - Vertical Image Gallery */}
         <div className="space-y-2 mb-10">
@@ -289,7 +460,7 @@ export default function DesignDetailPage() {
           )}
         </div>
 
-        {/* Action Bar - Sticky bottom style */}
+        {/* Action Bar - Sticky bottom */}
         <div className="sticky bottom-0 z-10 bg-white/80 backdrop-blur-xl border-t border-border/50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 mb-10">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex flex-wrap gap-2 mr-2">
@@ -308,18 +479,46 @@ export default function DesignDetailPage() {
                 <Download className="w-4 h-4" />
                 {design.is_free ? 'Download Free' : `Buy for $${design.price}`}
               </Button>
+              {/* Like Button */}
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setLiked(!liked)}
-                className={liked ? 'text-red-500 border-red-500' : ''}
+                onClick={handleLike}
+                className={liked ? 'text-red-500 border-red-500 bg-red-50' : ''}
+                title={liked ? 'Unlike' : 'Like'}
               >
-                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
+                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
               </Button>
-              <Button variant="outline" size="icon">
-                <Share2 className="w-4 h-4" />
+              {/* Save Button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleSave}
+                className={saved ? 'text-amber-500 border-amber-500 bg-amber-50' : ''}
+                title={saved ? 'Unsave' : 'Save to collection'}
+              >
+                <Bookmark className={`w-4 h-4 ${saved ? 'fill-amber-500 text-amber-500' : ''}`} />
               </Button>
-              <Button variant="outline" size="icon">
+              {/* Reference Button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleReference}
+                className={referenced ? 'text-blue-500 border-blue-500 bg-blue-50' : ''}
+                title={referenced ? 'Remove reference' : 'Add to references'}
+              >
+                <ExternalLink className={`w-4 h-4 ${referenced ? 'text-blue-500' : ''}`} />
+              </Button>
+              {/* Share Button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleShare}
+                title="Share"
+              >
+                {copied ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+              </Button>
+              <Button variant="outline" size="icon" title="Report">
                 <Flag className="w-4 h-4" />
               </Button>
             </div>
@@ -332,6 +531,22 @@ export default function DesignDetailPage() {
           <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-line">
             {design.description}
           </div>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { icon: Heart, label: 'Likes', value: design.like_count, color: liked ? 'text-red-500' : '' },
+            { icon: Eye, label: 'Views', value: design.view_count, color: '' },
+            { icon: Download, label: 'Downloads', value: design.download_count, color: '' },
+            { icon: ExternalLink, label: 'References', value: design.reference_count, color: referenced ? 'text-blue-500' : '' },
+          ].map((stat) => (
+            <div key={stat.label} className="text-center p-4 bg-slate-50 rounded-xl">
+              <stat.icon className={`w-5 h-5 mx-auto mb-2 ${stat.color || 'text-muted-foreground'}`} />
+              <p className="text-2xl font-bold">{stat.value}</p>
+              <p className="text-xs text-muted-foreground">{stat.label}</p>
+            </div>
+          ))}
         </div>
 
         {/* Comments Section */}
