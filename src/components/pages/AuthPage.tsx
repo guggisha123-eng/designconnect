@@ -123,6 +123,28 @@ export default function AuthPage() {
     setLoading(true)
 
     try {
+      // Always try demo auth first for known demo emails
+      const demoUsers = getDemoUsers()
+      const demoUser = demoUsers.find(u => u.email.toLowerCase() === loginEmail.toLowerCase() && u.password === loginPassword)
+
+      if (demoUser) {
+        // === DEMO AUTH (always works for demo accounts) ===
+        await new Promise(r => setTimeout(r, 500))
+        login({
+          id: demoUser.id,
+          name: demoUser.name,
+          email: demoUser.email,
+          role: demoUser.role,
+          avatar: demoUser.avatar,
+          bio: demoUser.bio,
+          location: demoUser.location,
+          isPro: demoUser.isPro,
+          isAdmin: demoUser.isAdmin,
+        })
+        navigateTo('dashboard')
+        return
+      }
+
       if (isSupabaseConfigured) {
         // === SUPABASE AUTH ===
         const supabase = createClient()
