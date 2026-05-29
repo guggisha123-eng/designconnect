@@ -96,3 +96,44 @@ Complete rebuild of the Design Connect website from scratch with Supabase integr
 - All routes generated correctly
 
 ## File Count: ~25 files created/modified
+
+---
+
+## Task ID: 2 - Remove Legacy Prisma API Routes & Migrate to Supabase
+
+### Date: 2025-07-11
+
+---
+
+## Summary
+Removed all leftover Prisma-based API routes and `@/lib/db` dependency since the project now uses Supabase for auth and data. Recreated the dashboard stats API route using the Supabase server client.
+
+## What was done:
+
+### 1. Deleted Old Files (9 files)
+- `src/app/api/auth/login/route.ts` — Old Prisma login route
+- `src/app/api/auth/signup/route.ts` — Old Prisma signup route
+- `src/app/api/auth/logout/route.ts` — Old Prisma logout route
+- `src/app/api/auth/me/route.ts` — Old Prisma current-user route
+- `src/app/api/auth/check/route.ts` — Old Prisma auth check route
+- `src/app/api/dashboard/stats/route.ts` — Old Prisma stats route (replaced)
+- `src/app/api/route.ts` — Old root API route
+- `src/app/api/contact/route.ts` — Old contact route
+- `src/lib/db.ts` — Prisma database client (no longer needed)
+
+### 2. Preserved
+- `src/app/api/auth/callback/route.ts` — Supabase auth callback handler (kept)
+
+### 3. Created New File
+- `src/app/api/dashboard/stats/route.ts` — Rewritten using Supabase server client (`@/lib/supabase/server`):
+  - Admin: totalUsers, totalDesigners, totalDesigns, totalRevenue, recentOrders
+  - Designer: myDesigns, totalViews, totalLikes, earnings
+  - Client: purchases count
+
+### 4. Verification
+- Searched all `.ts`/`.tsx` files for `@/lib/db`, `bcryptjs`, `bcrypt` — zero remaining references
+- `npm run build` — **✅ SUCCESS**, compiled and generated all routes cleanly
+
+## Build Status: ✅ SUCCESS
+- All routes: `/`, `/_not-found`, `/api/auth/callback`, `/api/dashboard/stats`
+- No type errors, no missing imports

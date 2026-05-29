@@ -10,77 +10,64 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch user profile
+    // Get user profile
     const { data: profile } = await supabase
       .from('users')
       .select('*')
       .eq('id', user.id)
       .single()
 
-    const role = profile?.role || 'designer'
+    const role = profile?.role || 'client'
 
     if (role === 'admin') {
       const { count: totalUsers } = await supabase.from('users').select('*', { count: 'exact', head: true })
       const { count: totalDesigners } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'designer')
       const { count: totalDesigns } = await supabase.from('designs').select('*', { count: 'exact', head: true })
-      const { data: allOrders } = await supabase.from('orders').select('amount, status')
-      const totalRevenue = allOrders?.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.amount, 0) || 0
+      const { data: orders } = await supabase.from('orders').select('amount')
+      const totalRevenue = (orders || []).reduce((sum: number, o: any) => sum + (o.amount || 0), 0)
+
+      const { data: recentOrders } = await supabase
+        .from('orders')
+        .select('*, buyer:users!orders_buyer_id_fkey(name), designer:users!orders_designer_id_fkey(name)')
+        .order('created_at', { ascending: false })
+        .limit(5)
 
       return NextResponse.json({
         role: 'admin',
         totalUsers: totalUsers || 0,
         totalDesigners: totalDesigners || 0,
         totalDesigns: totalDesigns || 0,
-        totalRevenue,
+        totalRevenue: totalRevenue || 0,
+        recentOrders: recentOrders || [],
       })
     }
 
     if (role === 'designer') {
-      const { data: designs } = await supabase
-        .from('designs')
-        .select('id, title, view_count, like_count, download_count, created_at')
-        .eq('designer_id', user.id)
-        .order('created_at', { ascending: false })
-
-      const { data: orders } = await supabase
-        .from('orders')
-        .select('id, amount, status, created_at, designs!orders_design_id_fkey(title)')
-        .eq('designer_id', user.id)
-        .order('created_at', { ascending: false })
+      const { count: myDesigns } = await supabase.from('designs').select('*', { count: 'exact', head: true }).eq('designer_id', user.id)
+      const { data: designs } = await supabase.from('designs').select('view_count, like_count').eq('designer_id', user.id)
+      const totalViews = (designs || []).reduce((sum: number, d: any) => sum + (d.view_count || 0), 0)
+      const totalLikes = (designs || []).reduce((sum: number, d: any) => sum + (d.like_count || 0), 0)
+      const { data: soldOrders } = await supabase.from('orders').select('amount').eq('designer_id', user.id).eq('status', 'completed')
+      const earnings = (soldOrders || []).reduce((sum: number, o: any) => sum + (o.amount || 0), 0)
 
       return NextResponse.json({
         role: 'designer',
-        totalDesigns: designs?.length || 0,
-        totalViews: designs?.reduce((sum, d) => sum + (d.view_count || 0), 0) || 0,
-        totalLikes: designs?.reduce((sum, d) => sum + (d.like_count || 0), 0) || 0,
-        totalDownloads: designs?.reduce((sum, d) => sum + (d.download_count || 0), 0) || 0,
-        earnings: orders?.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.amount || 0), 0) || 0,
-        recentDesigns: designs?.slice(0, 10) || [],
-        recentOrders: orders?.slice(0, 5) || [],
+        myDesigns: myDesigns || 0,
+        totalViews,
+        totalLikes,
+        earnings,
       })
     }
 
     // Client
-    const { count: purchases } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .eq('buyer_id', user.id)
-
-    const { data: likedDesigns } = await supabase
-      .from('likes')
-      .select('design_id, designs!likes_design_id_fkey(id, title, thumbnail)')
-      .eq('user_id', user.id)
+    const { count: purchases } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('buyer_id', user.id)
 
     return NextResponse.json({
       role: 'client',
       purchases: purchases || 0,
-      favorites: likedDesigns?.length || 0,
     })
-  } catch (error) {
-    console.error('Dashboard stats error:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch stats' },
-      { status: 500 }
-    )
+  } catch (error: any) {
+    console.error('Dashboard stats error:', error.message)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

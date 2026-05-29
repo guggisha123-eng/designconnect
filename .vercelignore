@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.git/
+upload/
+skills/
+examples/
+db/
+*.db
+download/
+skills/
+*.log
