@@ -7,65 +7,8 @@ import { useNavStore, type UserRole } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { isSupabaseConfigured, createClient } from '@/lib/supabase/client'
+import { createClient, isSupabaseReady } from '@/lib/supabase/client'
 import WaterEffect from '@/components/layout/WaterEffect'
-
-// Demo user storage
-interface DemoUser {
-  id: string
-  name: string
-  email: string
-  password: string
-  role: UserRole
-  avatar: string | null
-  bio: string | null
-  location: string | null
-  isPro: boolean
-  isAdmin: boolean
-}
-
-function getDemoUsers(): DemoUser[] {
-  if (typeof window === 'undefined') return []
-  const stored = localStorage.getItem('dc_demo_users')
-  if (stored) {
-    try { return JSON.parse(stored) } catch { return [] }
-  }
-  // Default demo accounts
-  const defaults: DemoUser[] = [
-    {
-      id: 'demo-1',
-      name: 'Demo Designer',
-      email: 'demo@designconnect.com',
-      password: 'demo123',
-      role: 'designer',
-      avatar: null,
-      bio: 'Creative designer with 5+ years of experience',
-      location: 'Mumbai, India',
-      isPro: false,
-      isAdmin: false,
-    },
-    {
-      id: 'demo-2',
-      name: 'Demo Client',
-      email: 'client@designconnect.com',
-      password: 'demo123',
-      role: 'client',
-      avatar: null,
-      bio: 'Looking for talented designers',
-      location: 'Delhi, India',
-      isPro: false,
-      isAdmin: false,
-    },
-  ]
-  localStorage.setItem('dc_demo_users', JSON.stringify(defaults))
-  return defaults
-}
-
-function saveDemoUsers(users: DemoUser[]) {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('dc_demo_users', JSON.stringify(users))
-  }
-}
 
 export default function AuthPage() {
   const { authMode, setAuthMode, navigateTo, login } = useNavStore()
@@ -74,7 +17,7 @@ export default function AuthPage() {
   const [successMsg, setSuccessMsg] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [accountType, setAccountType] = useState<UserRole>('designer')
-  const [demoMode] = useState(!isSupabaseConfigured)
+  const [supabaseReady, setSupabaseReady] = useState(true)
 
   // Login fields
   const [loginEmail, setLoginEmail] = useState('')
@@ -86,33 +29,37 @@ export default function AuthPage() {
   const [signupPassword, setSignupPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
+  // Check Supabase readiness
+  useEffect(() => {
+    setSupabaseReady(isSupabaseReady())
+  }, [])
+
   // Check session on mount
   useEffect(() => {
+    if (!isSupabaseReady()) return
+
     const checkSession = async () => {
-      if (isSupabaseConfigured) {
-        try {
-          const supabase = createClient()
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session?.user) {
-            const meta = session.user.user_metadata
-            login({
-              id: session.user.id,
-              name: meta?.name || session.user.email?.split('@')[0] || 'User',
-              email: session.user.email || '',
-              role: meta?.role || 'designer',
-              avatar: meta?.avatar || null,
-              bio: meta?.bio || null,
-              location: meta?.location || null,
-              isPro: meta?.is_pro || false,
-              isAdmin: meta?.is_admin || false,
-            })
-            navigateTo('dashboard')
-          }
-        } catch (err) {
-          console.warn('[Auth] Session check failed:', err)
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          const meta = session.user.user_metadata
+          login({
+            id: session.user.id,
+            name: meta?.name || session.user.email?.split('@')[0] || 'User',
+            email: session.user.email || '',
+            role: meta?.role || 'designer',
+            avatar: meta?.avatar || null,
+            bio: meta?.bio || null,
+            location: meta?.location || null,
+            isPro: meta?.is_pro || false,
+            isAdmin: meta?.is_admin || false,
+          })
+          navigateTo('dashboard')
         }
+      } catch {
+        // Session check failed silently
       }
-      // Demo mode: session already hydrated from localStorage via nav-store
     }
     checkSession()
   }, [])
@@ -122,102 +69,64 @@ export default function AuthPage() {
     setError('')
     setLoading(true)
 
-    try {
-      // Always try demo auth first for known demo emails
-      const demoUsers = getDemoUsers()
-      const demoUser = demoUsers.find(u => u.email.toLowerCase() === loginEmail.toLowerCase() && u.password === loginPassword)
+    if (!isSupabaseReady()) {
+      setError('Authentication service is being configured. Please try again later.')
+      setLoading(false)
+      return
+    }
 
-      if (demoUser) {
-        // === DEMO AUTH (always works for demo accounts) ===
-        await new Promise(r => setTimeout(r, 500))
-        login({
-          id: demoUser.id,
-          name: demoUser.name,
-          email: demoUser.email,
-          role: demoUser.role,
-          avatar: demoUser.avatar,
-          bio: demoUser.bio,
-          location: demoUser.location,
-          isPro: demoUser.isPro,
-          isAdmin: demoUser.isAdmin,
-        })
-        navigateTo('dashboard')
+    try {
+      const supabase = createClient()
+
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPassword,
+      })
+
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password. Please check and try again.')
+        } else if (authError.message.includes('Email not confirmed')) {
+          setError('Please verify your email address first. Check your inbox.')
+        } else if (authError.message.includes('Too many requests')) {
+          setError('Too many attempts. Please wait a moment and try again.')
+        } else {
+          setError(authError.message)
+        }
         return
       }
 
-      if (isSupabaseConfigured) {
-        // === SUPABASE AUTH ===
-        const supabase = createClient()
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email: loginEmail,
-          password: loginPassword,
-        })
+      if (data.user) {
+        const meta = data.user.user_metadata
+        let profileData = null
 
-        if (authError) {
-          setError(authError.message)
-          return
+        // Try to fetch profile (non-blocking)
+        try {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', data.user.id)
+            .single()
+          profileData = profile
+        } catch {
+          // Profile table might not exist yet, use auth metadata
         }
 
-        if (data.user) {
-          const meta = data.user.user_metadata
-          try {
-            const { data: profile } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', data.user.id)
-              .single()
-
-            login({
-              id: data.user.id,
-              name: profile?.name || meta?.name || data.user.email?.split('@')[0] || 'User',
-              email: data.user.email || '',
-              role: profile?.role || meta?.role || 'designer',
-              avatar: profile?.avatar || null,
-              bio: profile?.bio || null,
-              location: profile?.location || null,
-              isPro: profile?.is_pro || false,
-              isAdmin: profile?.is_admin || false,
-            })
-          } catch {
-            login({
-              id: data.user.id,
-              name: meta?.name || data.user.email?.split('@')[0] || 'User',
-              email: data.user.email || '',
-              role: meta?.role || 'designer',
-              avatar: null,
-              bio: null,
-              location: null,
-              isPro: false,
-              isAdmin: false,
-            })
-          }
-          navigateTo('dashboard')
-        }
-      } else {
-        // === DEMO AUTH ===
-        const users = getDemoUsers()
-        const user = users.find(u => u.email.toLowerCase() === loginEmail.toLowerCase() && u.password === loginPassword)
-        if (!user) {
-          setError('Invalid email or password. Try demo@designconnect.com / demo123')
-          return
-        }
-        // Simulate network delay
-        await new Promise(r => setTimeout(r, 500))
         login({
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          avatar: user.avatar,
-          bio: user.bio,
-          location: user.location,
-          isPro: user.isPro,
-          isAdmin: user.isAdmin,
+          id: data.user.id,
+          name: profileData?.name || meta?.name || data.user.email?.split('@')[0] || 'User',
+          email: data.user.email || '',
+          role: profileData?.role || meta?.role || 'designer',
+          avatar: profileData?.avatar || meta?.avatar || null,
+          bio: profileData?.bio || meta?.bio || null,
+          location: profileData?.location || meta?.location || null,
+          isPro: profileData?.is_pro || false,
+          isAdmin: profileData?.is_admin || false,
         })
         navigateTo('dashboard')
       }
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
+      setError('Connection error. Please check your internet and try again.')
     } finally {
       setLoading(false)
     }
@@ -232,6 +141,7 @@ export default function AuthPage() {
       setError('Passwords do not match')
       return
     }
+
     if (signupPassword.length < 6) {
       setError('Password must be at least 6 characters')
       return
@@ -239,90 +149,69 @@ export default function AuthPage() {
 
     setLoading(true)
 
+    if (!isSupabaseReady()) {
+      setError('Authentication service is being configured. Please try again later.')
+      setLoading(false)
+      return
+    }
+
     try {
-      if (isSupabaseConfigured) {
-        // === SUPABASE AUTH ===
-        const supabase = createClient()
-        const { data, error: authError } = await supabase.auth.signUp({
-          email: signupEmail,
-          password: signupPassword,
-          options: {
-            data: { name: signupName, role: accountType },
-            emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+      const supabase = createClient()
+
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: signupEmail,
+        password: signupPassword,
+        options: {
+          data: {
+            name: signupName,
+            role: accountType,
           },
-        })
+          emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+        },
+      })
 
-        if (authError) {
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          setError('An account with this email already exists. Try signing in instead.')
+        } else {
           setError(authError.message)
-          return
+        }
+        return
+      }
+
+      if (data.user) {
+        // Try to create profile in public.users table
+        try {
+          await supabase.from('users').upsert({
+            id: data.user.id,
+            email: signupEmail,
+            name: signupName,
+            role: accountType,
+          }, { onConflict: 'id' })
+        } catch {
+          // Profile table might not exist yet
         }
 
-        if (data.user) {
-          try {
-            await supabase.from('users').upsert({
-              id: data.user.id,
-              email: signupEmail,
-              name: signupName,
-              role: accountType,
-            }, { onConflict: 'id' })
-          } catch { /* ignore */ }
-
-          if (data.session) {
-            login({
-              id: data.user.id,
-              name: signupName,
-              email: signupEmail,
-              role: accountType,
-              avatar: null,
-              bio: null,
-              location: null,
-              isPro: false,
-              isAdmin: false,
-            })
-            navigateTo('dashboard')
-          } else {
-            setSuccessMsg('Account created! Please check your email to verify.')
-          }
+        if (data.session) {
+          // Auto-confirmed (email verification disabled in Supabase)
+          login({
+            id: data.user.id,
+            name: signupName,
+            email: signupEmail,
+            role: accountType,
+            avatar: null,
+            bio: null,
+            location: null,
+            isPro: false,
+            isAdmin: false,
+          })
+          navigateTo('dashboard')
+        } else {
+          setSuccessMsg('Account created successfully! Please check your email to verify your account, then sign in.')
         }
-      } else {
-        // === DEMO AUTH ===
-        const users = getDemoUsers()
-        const exists = users.find(u => u.email.toLowerCase() === signupEmail.toLowerCase())
-        if (exists) {
-          setError('An account with this email already exists.')
-          return
-        }
-        await new Promise(r => setTimeout(r, 500))
-
-        const newUser: DemoUser = {
-          id: `demo-${Date.now()}`,
-          name: signupName,
-          email: signupEmail,
-          password: signupPassword,
-          role: accountType,
-          avatar: null,
-          bio: null,
-          location: null,
-          isPro: false,
-          isAdmin: false,
-        }
-        saveDemoUsers([...users, newUser])
-
-        login({
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email,
-          role: newUser.role,
-          avatar: null,
-          bio: null,
-          location: null,
-          isPro: false,
-          isAdmin: false,
-        })
-        navigateTo('dashboard')
       }
     } catch {
-      setError('An unexpected error occurred')
+      setError('Connection error. Please check your internet and try again.')
     } finally {
       setLoading(false)
     }
@@ -389,14 +278,17 @@ export default function AuthPage() {
             </span>
           </div>
 
-          {/* Demo Mode Banner */}
-          {demoMode && (
+          {/* Supabase not configured warning */}
+          {!supabaseReady && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-xl"
+              className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl"
             >
-              Demo Mode - Use <strong>demo@designconnect.com</strong> / <strong>demo123</strong> to login, or create a new account.
+              <p className="font-semibold mb-1">Authentication Not Configured</p>
+              <p className="text-red-600">
+                The admin needs to set up Supabase credentials in the deployment settings. Please contact support or try again later.
+              </p>
             </motion.div>
           )}
 
@@ -498,7 +390,7 @@ export default function AuthPage() {
 
               <Button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !supabaseReady}
                 className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
               >
                 {loading ? (
@@ -617,7 +509,7 @@ export default function AuthPage() {
 
               <Button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !supabaseReady}
                 className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
               >
                 {loading ? (

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
-import { isSupabaseConfigured, createClient } from '@/lib/supabase/client'
+import { isSupabaseReady, createClient } from '@/lib/supabase/client'
 
 interface DesignDetail {
   id: string
@@ -230,7 +230,7 @@ export default function DesignDetailPage() {
     saveLocalLikes(likes)
 
     // Try Supabase if configured
-    if (isSupabaseConfigured && user) {
+    if (isSupabaseReady && user) {
       try {
         const supabase = createClient()
         if (newLiked) {
@@ -286,7 +286,7 @@ export default function DesignDetailPage() {
     setTimeout(() => setShareMsg(''), 2000)
 
     // Try Supabase
-    if (isSupabaseConfigured && user) {
+    if (isSupabaseReady && user) {
       try {
         const supabase = createClient()
         if (newRef) {
