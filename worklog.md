@@ -1,5 +1,53 @@
 # Design Connect - Work Log
 
+## Task ID: 3 - Fix Login System (Demo Auth + Middleware)
+
+### Date: 2026-05-29
+
+---
+
+## Summary
+Fixed login system that was broken because Supabase credentials were never configured. Added dual-mode auth: Supabase when configured, Demo/Local auth as fallback.
+
+## What was done:
+
+### 1. Created `src/middleware.ts` (CRITICAL FIX)
+- Was missing — Supabase SSR session refresh wasn't happening
+- Now calls `updateSession()` from `@/lib/supabase/middleware`
+
+### 2. Fixed `src/lib/supabase/client.ts`
+- Added `isSupabaseConfigured` export flag
+- Graceful error handling when env vars are missing
+- Console warnings instead of crashes
+
+### 3. Rewrote `src/components/pages/AuthPage.tsx` — Dual Mode Auth
+- **Supabase Mode**: When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set, uses real Supabase auth
+- **Demo Mode**: When Supabase is NOT configured:
+  - Shows a yellow "Demo Mode" banner with test credentials
+  - Default accounts: `demo@designconnect.com` / `demo123` (designer) and `client@designconnect.com` / `demo123` (client)
+  - New signups stored in localStorage
+  - Full login/signup flow works without any backend
+- Profile fetch errors no longer block login (fallback to auth metadata)
+
+### 4. Fixed `src/app/api/auth/callback/route.ts`
+- Changed error redirect from `/auth?error=callback` (non-existent route) to `/?auth_error=callback` (SPA root)
+
+### 5. Demo Auth Details
+- Demo users stored in `localStorage` key `dc_demo_users`
+- Login validates against stored demo users
+- Signup adds new users to the demo store
+- Passwords validated, duplicates rejected
+
+## Build Status: SUCCESS
+- All code compiles and builds correctly
+
+## Note: Deployment Required
+- Code is committed but needs push to GitHub / deploy to Vercel
+- GitHub push failed (no auth token available)
+- Vercel CLI deploy failed (no auth token available)
+
+---
+
 ## Task ID: 1 - Full Rebuild
 
 ### Date: 2026-05-28
