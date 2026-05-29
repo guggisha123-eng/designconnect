@@ -3,17 +3,13 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, Heart, Eye, Download, Star, Share2, MessageSquare,
-  Flag, Calendar, Tag, ChevronLeft, ChevronRight
+  ArrowLeft, Heart, Eye, Download, Share2, MessageSquare, Flag
 } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 
 interface DesignDetail {
@@ -236,121 +232,96 @@ export default function DesignDetailPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Browse
         </button>
 
-        <div className="grid lg:grid-cols-5 gap-8">
-          {/* Image Section */}
-          <div className="lg:col-span-3">
-            <Card className="border-0 overflow-hidden shadow-sm">
-              <div className="aspect-[16/10] bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center relative overflow-hidden">
-                {design.thumbnail_url ? (
-                  <img src={design.thumbnail_url} alt={design.title} className="w-full h-full object-cover" />
-                ) : design.image_urls && design.image_urls.length > 0 && design.image_urls[currentImageIndex] ? (
-                  <img src={design.image_urls[currentImageIndex]} alt={design.title} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-6xl opacity-30">🎨</span>
-                )}
-                {design.is_free && (
-                  <Badge className="absolute top-4 left-4 bg-green-500 text-white border-0">Free</Badge>
-                )}
+        {/* Title & Meta - Above images like Behance */}
+        <div className="mb-6">
+          <h1 className="text-2xl lg:text-3xl font-bold mb-3">{design.title}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <div
+              className="flex items-center gap-3 cursor-pointer group"
+              onClick={() => {
+                setSelectedDesignerId(design.designer.id)
+                navigateTo('designer-profile')
+              }}
+            >
+              <Avatar className="w-10 h-10">
+                <AvatarFallback className="gradient-orange text-white font-bold text-sm">
+                  {design.designer.name.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-sm font-semibold group-hover:text-[#fb8000] transition-colors">{design.designer.name}</p>
+                <p className="text-xs text-muted-foreground">{design.designer.bio || 'Designer'}</p>
               </div>
-            </Card>
-
-            {/* Image Navigation */}
-            <div className="flex gap-2 mt-3 overflow-x-auto custom-scrollbar">
-              {(design.image_urls && design.image_urls.length > 0 ? design.image_urls : [design.thumbnail_url]).filter(Boolean).map((url, i) => (
-                <div
-                  key={i}
-                  onClick={() => setCurrentImageIndex(i)}
-                  className={`w-20 h-14 rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center cursor-pointer flex-shrink-0 transition-all overflow-hidden ${
-                    currentImageIndex === i ? 'ring-2 ring-[#fb8000]' : 'opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img src={url} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
-                </div>
-              ))}
+            </div>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground ml-auto">
+              <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> {design.like_count}</span>
+              <span className="mx-1">·</span>
+              <span className="flex items-center gap-1"><Eye className="w-4 h-4" /> {design.view_count}</span>
+              <span className="mx-1">·</span>
+              <span className="flex items-center gap-1"><Download className="w-4 h-4" /> {design.download_count}</span>
             </div>
           </div>
+        </div>
 
-          {/* Details Section */}
-          <div className="lg:col-span-2">
-            <div className="sticky top-24">
-              <h1 className="text-2xl font-bold mb-3">{design.title}</h1>
+        {/* Behance Style - Vertical Image Gallery */}
+        <div className="space-y-2 mb-10">
+          {(design.image_urls && design.image_urls.length > 0 ? design.image_urls : design.thumbnail_url ? [design.thumbnail_url] : []).filter(Boolean).map((url, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="relative group overflow-hidden rounded-xl bg-muted"
+            >
+              <img
+                src={url}
+                alt={`${design.title} - Image ${i + 1}`}
+                className="w-full h-auto max-h-[90vh] object-contain"
+                loading={i === 0 ? 'eager' : 'lazy'}
+              />
+            </motion.div>
+          ))}
+          {/* If no images */}
+          {(!design.image_urls || design.image_urls.length === 0) && !design.thumbnail_url && (
+            <div className="aspect-[16/10] bg-gradient-to-br from-orange-100 to-amber-50 rounded-xl flex items-center justify-center">
+              <span className="text-6xl opacity-30">🎨</span>
+            </div>
+          )}
+        </div>
 
-              {/* Tags */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                <Badge variant="secondary">{design.category}</Badge>
-                {design.subcategory && <Badge variant="outline">{design.subcategory}</Badge>}
-              </div>
-
-              {/* Stats */}
-              <div className="flex items-center gap-6 mb-6 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1"><Heart className="w-4 h-4" /> {design.like_count}</span>
-                <span className="flex items-center gap-1"><Eye className="w-4 h-4" /> {design.view_count}</span>
-                <span className="flex items-center gap-1"><Download className="w-4 h-4" /> {design.download_count}</span>
-              </div>
-
-              {/* Price */}
-              <div className="mb-6">
+        {/* Action Bar - Sticky bottom style */}
+        <div className="sticky bottom-0 z-10 bg-white/80 backdrop-blur-xl border-t border-border/50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 mb-10">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex flex-wrap gap-2 mr-2">
+              <Badge variant="secondary">{design.category}</Badge>
+              {design.subcategory && <Badge variant="outline">{design.subcategory}</Badge>}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <div className="mr-2">
                 {design.is_free ? (
-                  <span className="text-3xl font-bold text-green-500">Free</span>
+                  <span className="text-xl font-bold text-green-500">Free</span>
                 ) : (
-                  <span className="text-3xl font-bold text-[#fb8000]">${design.price}</span>
+                  <span className="text-xl font-bold text-[#fb8000]">${design.price}</span>
                 )}
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-3 mb-6">
-                <Button className="flex-1 gradient-orange gradient-orange-hover text-white border-0 gap-2">
-                  <Download className="w-4 h-4" />
-                  {design.is_free ? 'Download Free' : `Buy for $${design.price}`}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setLiked(!liked)}
-                  className={liked ? 'text-red-500 border-red-500' : ''}
-                >
-                  <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
-                </Button>
-                <Button variant="outline" size="icon">
-                  <Share2 className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="icon">
-                  <Flag className="w-4 h-4" />
-                </Button>
-              </div>
-
-              <Separator className="my-6" />
-
-              {/* Designer Info */}
-              <div
-                className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted cursor-pointer transition-colors"
-                onClick={() => {
-                  setSelectedDesignerId(design.designer.id)
-                  navigateTo('designer-profile')
-                }}
+              <Button className="gradient-orange gradient-orange-hover text-white border-0 gap-2">
+                <Download className="w-4 h-4" />
+                {design.is_free ? 'Download Free' : `Buy for $${design.price}`}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setLiked(!liked)}
+                className={liked ? 'text-red-500 border-red-500' : ''}
               >
-                <Avatar className="w-12 h-12">
-                  <AvatarFallback className="gradient-orange text-white font-bold">
-                    {design.designer.name.charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-semibold">{design.designer.name}</p>
-                  <p className="text-sm text-muted-foreground">{design.designer.bio || 'Designer'}</p>
-                </div>
-              </div>
-
-              {/* File Info */}
-              <div className="mt-6 space-y-3 text-sm">
-                <div className="flex items-center gap-3 text-muted-foreground">
-                  <Tag className="w-4 h-4" />
-                  <span>Source files: {design.source_files || 'Not available'}</span>
-                </div>
-                <div className="flex items-center gap-3 text-muted-foreground">
-                  <Calendar className="w-4 h-4" />
-                  <span>Published: {new Date(design.created_at).toLocaleDateString()}</span>
-                </div>
-              </div>
+                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
+              </Button>
+              <Button variant="outline" size="icon">
+                <Share2 className="w-4 h-4" />
+              </Button>
+              <Button variant="outline" size="icon">
+                <Flag className="w-4 h-4" />
+              </Button>
             </div>
           </div>
         </div>
