@@ -88,21 +88,39 @@ const faqs = [
 ]
 
 export default function PricingPage() {
-  const { navigateTo, isLoggedIn, upgradeToPro } = useNavStore()
+  const { navigateTo, isLoggedIn, user, upgradeToPro } = useNavStore()
   const [isYearly, setIsYearly] = useState(false)
+  const [proMessage, setProMessage] = useState('')
+  const [showProDialog, setShowProDialog] = useState(false)
 
   const handlePlanSelect = (planName: string) => {
+    setProMessage('')
     if (planName === 'Free') {
-      navigateTo('auth')
-    } else if (planName === 'Pro') {
       if (isLoggedIn) {
-        upgradeToPro()
+        setProMessage('You are already on the Free plan!')
       } else {
         navigateTo('auth')
+      }
+    } else if (planName === 'Pro') {
+      if (isLoggedIn) {
+        if (user?.isPro) {
+          setProMessage('You are already a Pro member!')
+          return
+        }
+        setShowProDialog(true)
+      } else {
+        setProMessage('Please sign in first to upgrade to Pro!')
+        setTimeout(() => navigateTo('auth'), 1500)
       }
     } else {
       navigateTo('contact')
     }
+  }
+
+  const confirmUpgrade = () => {
+    upgradeToPro()
+    setShowProDialog(false)
+    setProMessage('Welcome to Pro! You now have unlimited access to all premium features.')
   }
 
   return (
@@ -205,6 +223,54 @@ export default function PricingPage() {
                       </p>
                     )}
                   </div>
+
+                    {/* Pro Message */}
+                  {proMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`mb-4 p-3 rounded-lg text-sm font-medium ${
+                        proMessage.includes('Welcome')
+                          ? 'bg-green-50 text-green-700 border border-green-200'
+                          : proMessage.includes('already')
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : 'bg-orange-50 text-orange-700 border border-orange-200'
+                      }`}
+                    >
+                      {proMessage}
+                    </motion.div>
+                  )}
+
+                  {/* Pro Upgrade Dialog */}
+                  {showProDialog && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="mb-6 p-4 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200"
+                    >
+                      <h4 className="font-bold text-sm mb-1">Upgrade to Pro</h4>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Get unlimited uploads, Pro badge, featured placement & more for just {isYearly ? '$79.99/year' : '$9.99/month'}.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1 gradient-orange text-white border-0 text-xs"
+                          onClick={confirmUpgrade}
+                        >
+                          Confirm Upgrade
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                          onClick={() => setShowProDialog(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
 
                   <Button
                     className={cn(
