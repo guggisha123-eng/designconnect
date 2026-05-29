@@ -31,22 +31,26 @@ export default function AuthPage() {
   // Check session on mount
   useEffect(() => {
     const checkSession = async () => {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        const meta = session.user.user_metadata
-        login({
-          id: session.user.id,
-          name: meta?.name || session.user.email?.split('@')[0] || 'User',
-          email: session.user.email || '',
-          role: meta?.role || 'designer',
-          avatar: meta?.avatar || null,
-          bio: meta?.bio || null,
-          location: meta?.location || null,
-          isPro: meta?.is_pro || false,
-          isAdmin: meta?.is_admin || false,
-        })
-        navigateTo('dashboard')
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          const meta = session.user.user_metadata
+          login({
+            id: session.user.id,
+            name: meta?.name || session.user.email?.split('@')[0] || 'User',
+            email: session.user.email || '',
+            role: meta?.role || 'designer',
+            avatar: meta?.avatar || null,
+            bio: meta?.bio || null,
+            location: meta?.location || null,
+            isPro: meta?.is_pro || false,
+            isAdmin: meta?.is_admin || false,
+          })
+          navigateTo('dashboard')
+        }
+      } catch (err) {
+        console.warn('[Auth] Session check failed:', err)
       }
     }
     checkSession()
@@ -58,41 +62,69 @@ export default function AuthPage() {
     setLoading(true)
 
     try {
-      const supabase = createClient()
+      let supabase
+      try {
+        supabase = createClient()
+      } catch {
+        setError('Service is not configured properly. Please contact support.')
+        return
+      }
+      console.log('[Login] Attempting login for:', loginEmail)
+
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: loginPassword,
       })
 
       if (authError) {
+        console.error('[Login] Auth error:', authError.message)
         setError(authError.message)
         return
       }
 
       if (data.user) {
+        console.log('[Login] User authenticated:', data.user.id)
         const meta = data.user.user_metadata
-        // Fetch user profile from public.users table
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.user.id)
-          .single()
 
-        login({
-          id: data.user.id,
-          name: profile?.name || meta?.name || data.user.email?.split('@')[0] || 'User',
-          email: data.user.email || '',
-          role: profile?.role || meta?.role || 'designer',
-          avatar: profile?.avatar || null,
-          bio: profile?.bio || null,
-          location: profile?.location || null,
-          isPro: profile?.is_pro || false,
-          isAdmin: profile?.is_admin || false,
-        })
+        // Fetch user profile from public.users table
+        try {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', data.user.id)
+            .single()
+          console.log('[Login] Profile:', profile)
+
+          login({
+            id: data.user.id,
+            name: profile?.name || meta?.name || data.user.email?.split('@')[0] || 'User',
+            email: data.user.email || '',
+            role: profile?.role || meta?.role || 'designer',
+            avatar: profile?.avatar || null,
+            bio: profile?.bio || null,
+            location: profile?.location || null,
+            isPro: profile?.is_pro || false,
+            isAdmin: profile?.is_admin || false,
+          })
+        } catch (profileErr) {
+          console.warn('[Login] Profile fetch failed, using auth metadata:', profileErr)
+          login({
+            id: data.user.id,
+            name: meta?.name || data.user.email?.split('@')[0] || 'User',
+            email: data.user.email || '',
+            role: meta?.role || 'designer',
+            avatar: null,
+            bio: null,
+            location: null,
+            isPro: false,
+            isAdmin: false,
+          })
+        }
         navigateTo('dashboard')
       }
-    } catch {
-      setError('An unexpected error occurred')
+    } catch (err) {
+      console.error('[Login] Unexpected error:', err)
+      setError('An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -116,7 +148,13 @@ export default function AuthPage() {
     setLoading(true)
 
     try {
-      const supabase = createClient()
+      let supabase
+      try {
+        supabase = createClient()
+      } catch {
+        setError('Service is not configured properly. Please contact support.')
+        return
+      }
       const { data, error: authError } = await supabase.auth.signUp({
         email: signupEmail,
         password: signupPassword,

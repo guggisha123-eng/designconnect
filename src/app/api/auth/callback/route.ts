@@ -14,5 +14,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/auth?error=callback`)
+  return NextResponse.redirect(`${origin}?auth_error=callback`)
 }
