@@ -5,9 +5,13 @@ export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
-  // If Supabase is not configured, just pass through without crashing
+  // Use legacy anon key first (better SDK compatibility), fallback to publishable key
+  const supabaseKey = supabaseAnonKey || supabasePublishableKey
+
+  // If Supabase is not configured, just pass through
   if (!supabaseUrl || !supabaseKey) {
     return supabaseResponse
   }
