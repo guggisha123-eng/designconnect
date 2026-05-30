@@ -461,8 +461,37 @@ export default function DesignDetailPage() {
         </div>
 
         {/* Action Bar - Sticky bottom */}
-        <div className="sticky bottom-0 z-10 bg-white/80 backdrop-blur-xl border-t border-border/50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 mb-10">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="sticky bottom-0 z-10 bg-white/80 backdrop-blur-xl border-t border-border/50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 mb-10">
+          {/* Mobile Layout */}
+          <div className="flex sm:hidden items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <Badge variant="secondary" className="text-xs">{design.category}</Badge>
+              {design.is_free ? (
+                <span className="text-sm font-bold text-green-500">Free</span>
+              ) : (
+                <span className="text-sm font-bold text-[#fb8000]">${design.price}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button size="icon" variant="ghost" onClick={handleLike}
+                className={liked ? 'text-red-500' : ''}>
+                <Heart className={`w-5 h-5 ${liked ? 'fill-red-500' : ''}`} />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={handleSave}
+                className={saved ? 'text-amber-500' : ''}>
+                <Bookmark className={`w-5 h-5 ${saved ? 'fill-amber-500' : ''}`} />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={handleReference}
+                className={referenced ? 'text-blue-500' : ''}>
+                <ExternalLink className={`w-5 h-5 ${referenced ? 'text-blue-500' : ''}`} />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={handleShare}>
+                {copied ? <Check className="w-5 h-5 text-green-500" /> : <Share2 className="w-5 h-5" />}
+              </Button>
+            </div>
+          </div>
+          {/* Desktop Layout */}
+          <div className="hidden sm:flex items-center gap-3 flex-wrap">
             <div className="flex flex-wrap gap-2 mr-2">
               <Badge variant="secondary">{design.category}</Badge>
               {design.subcategory && <Badge variant="outline">{design.subcategory}</Badge>}
@@ -479,43 +508,19 @@ export default function DesignDetailPage() {
                 <Download className="w-4 h-4" />
                 {design.is_free ? 'Download Free' : `Buy for $${design.price}`}
               </Button>
-              {/* Like Button */}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleLike}
-                className={liked ? 'text-red-500 border-red-500 bg-red-50' : ''}
-                title={liked ? 'Unlike' : 'Like'}
-              >
-                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
+              <Button variant="outline" size="icon" onClick={handleLike}
+                className={liked ? 'text-red-500 border-red-500 bg-red-50' : ''} title="Like">
+                <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
               </Button>
-              {/* Save Button */}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleSave}
-                className={saved ? 'text-amber-500 border-amber-500 bg-amber-50' : ''}
-                title={saved ? 'Unsave' : 'Save to collection'}
-              >
-                <Bookmark className={`w-4 h-4 ${saved ? 'fill-amber-500 text-amber-500' : ''}`} />
+              <Button variant="outline" size="icon" onClick={handleSave}
+                className={saved ? 'text-amber-500 border-amber-500 bg-amber-50' : ''} title="Save">
+                <Bookmark className={`w-4 h-4 ${saved ? 'fill-amber-500' : ''}`} />
               </Button>
-              {/* Reference Button */}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleReference}
-                className={referenced ? 'text-blue-500 border-blue-500 bg-blue-50' : ''}
-                title={referenced ? 'Remove reference' : 'Add to references'}
-              >
+              <Button variant="outline" size="icon" onClick={handleReference}
+                className={referenced ? 'text-blue-500 border-blue-500 bg-blue-50' : ''} title="Reference">
                 <ExternalLink className={`w-4 h-4 ${referenced ? 'text-blue-500' : ''}`} />
               </Button>
-              {/* Share Button */}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleShare}
-                title="Share"
-              >
+              <Button variant="outline" size="icon" onClick={handleShare} title="Share">
                 {copied ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
               </Button>
               <Button variant="outline" size="icon" title="Report">
