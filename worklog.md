@@ -185,3 +185,23 @@ Removed all leftover Prisma-based API routes and `@/lib/db` dependency since the
 ## Build Status: ✅ SUCCESS
 - All routes: `/`, `/_not-found`, `/api/auth/callback`, `/api/dashboard/stats`
 - No type errors, no missing imports
+
+---
+Task ID: 4
+Agent: main
+Task: Fix Like/Save/Reference not working on DesignDetailPage
+
+Work Log:
+- Diagnosed bug: `isSupabaseReady` used as value instead of function call `isSupabaseReady()` on lines 233 and 289
+- Diagnosed bug: `createClient()` called without checking `isSupabaseReady()` in fetchDesign - throws error when Supabase not configured
+- Fixed all `isSupabaseReady` to `isSupabaseReady()` in handleLike, handleReference
+- Wrapped Supabase calls in fetchDesign with `isSupabaseReady()` check and added fallback design data
+- Added `getFallbackDesign()` helper function for graceful degradation
+- Added `isSupabaseReady()` check in handleComment with local fallback
+- Build successful, pushed to GitHub
+
+Stage Summary:
+- Key bugs: isSupabaseReady used as value (always truthy), createClient() throws when env vars missing
+- Fix: All Supabase calls now guarded with isSupabaseReady(), localStorage fallback always works
+- Like/Save/Reference now update local state immediately, persist in localStorage, and optionally sync to Supabase
+- Pushed commit 00f48f4 to GitHub main branch
