@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence, useInView } from 'framer-motion'
 import {
   Check, X, Sparkles, Zap, Shield, Download, Star,
   Users, Palette, ArrowRight, Crown, CreditCard,
   Loader2, AlertCircle, CheckCircle2, XCircle,
   Smartphone, Building2, Wallet, QrCode, Lock,
-  ChevronLeft, CircleDot
+  ChevronLeft, CircleDot, ShieldCheck, ChevronDown,
+  Quote
 } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
@@ -90,6 +91,29 @@ const faqs = [
   { q: 'Do you offer refunds?', a: 'We offer a 30-day money-back guarantee on all paid plans. If you\'re not satisfied, contact support for a full refund.' },
 ]
 
+// Comparison table features
+const comparisonFeatures = [
+  { name: 'Design uploads', free: '10', pro: 'Unlimited', enterprise: 'Unlimited' },
+  { name: 'Analytics', free: 'Basic', pro: 'Advanced', enterprise: 'Enterprise' },
+  { name: 'Download speed', free: 'Standard', pro: 'Fast', enterprise: 'Fastest' },
+  { name: 'Support', free: 'Community', pro: 'Priority', enterprise: '24/7 Dedicated' },
+  { name: 'Pro badge', free: false, pro: true, enterprise: true },
+  { name: 'Featured placement', free: false, pro: true, enterprise: true },
+  { name: 'Custom themes', free: false, pro: false, enterprise: true },
+  { name: 'Account manager', free: false, pro: false, enterprise: true },
+  { name: 'Commission on sales', free: '10%', pro: '5%', enterprise: '0%' },
+  { name: 'Team collaboration', free: false, pro: false, enterprise: true },
+]
+
+// Testimonials for banner
+const testimonials = [
+  { name: 'Aarav Patel', company: 'CreativeHub', avatar: 'AP', text: 'Design Connect Pro helped me earn 3x more from my designs. Worth every penny!' },
+  { name: 'Sophie Chen', company: 'PixelPerfect', avatar: 'SC', text: 'The analytics alone justified the upgrade. I can see exactly what my audience wants.' },
+  { name: 'Marcus Johnson', company: 'DesignLab', avatar: 'MJ', text: 'Featured placement got my portfolio in front of thousands. Game changer!' },
+  { name: 'Priya Singh', company: 'Artisan Studio', avatar: 'PS', text: 'Zero commission on Enterprise means I keep 100% of my earnings. Incredible.' },
+  { name: 'Leo Torres', company: 'FreelancePro', avatar: 'LT', text: 'Priority support responds within hours. They actually care about designers.' },
+]
+
 type PayMethod = 'upi' | 'card' | 'netbanking' | 'wallet'
 type CheckoutStep = 'idle' | 'method' | 'processing' | 'success' | 'failed'
 
@@ -100,9 +124,47 @@ const paymentMethods: { id: PayMethod; label: string; icon: any; desc: string }[
   { id: 'wallet', label: 'Wallet', icon: Wallet, desc: 'Paytm, Amazon Pay, Mobikwik' },
 ]
 
+// Animated price component
+function AnimatedPrice({ value, isChanging }: { value: number; isChanging: boolean }) {
+  const [displayValue, setDisplayValue] = useState(value)
+  const prevValue = useRef(value)
+
+  useEffect(() => {
+    if (value === prevValue.current) return
+    const start = prevValue.current
+    const end = value
+    const duration = 500
+    const startTime = Date.now()
+
+    const tick = () => {
+      const elapsed = Date.now() - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setDisplayValue(Math.round(start + (end - start) * eased))
+
+      if (progress < 1) {
+        requestAnimationFrame(tick)
+      } else {
+        prevValue.current = value
+      }
+    }
+
+    requestAnimationFrame(tick)
+  }, [value])
+
+  if (value === 0) return <span className="text-4xl font-bold">0</span>
+
+  return (
+    <span className={cn('text-4xl font-bold price-animate', isChanging && 'changing')}>
+      {displayValue}
+    </span>
+  )
+}
+
 export default function PricingPage() {
   const { navigateTo, isLoggedIn, user, upgradeToPro } = useNavStore()
   const [isYearly, setIsYearly] = useState(false)
+  const [isChanging, setIsChanging] = useState(false)
   const [checkoutStep, setCheckoutStep] = useState<CheckoutStep>('idle')
   const [selectedMethod, setSelectedMethod] = useState<PayMethod>('upi')
   const [selectedPlanName, setSelectedPlanName] = useState('')
@@ -114,11 +176,21 @@ export default function PricingPage() {
   const [cardName, setCardName] = useState('')
   const [bannerMsg, setBannerMsg] = useState('')
   const [bannerType, setBannerType] = useState<'info' | 'success' | 'error'>('info')
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null)
+
+  const comparisonRef = useRef<HTMLDivElement>(null)
+  const isComparisonInView = useInView(comparisonRef, { once: true })
 
   const showBanner = (msg: string, type: 'info' | 'success' | 'error' = 'info') => {
     setBannerMsg(msg)
     setBannerType(type)
     setTimeout(() => setBannerMsg(''), 4000)
+  }
+
+  const handleToggleYearly = () => {
+    setIsChanging(true)
+    setIsYearly(!isYearly)
+    setTimeout(() => setIsChanging(false), 500)
   }
 
   const openCheckout = (planName: string) => {
@@ -135,10 +207,8 @@ export default function PricingPage() {
       showBanner('You are already on the Free plan!', 'info')
       return
     }
-
     const plan = plans.find(p => p.name === planName)
     if (!plan) return
-
     const amount = isYearly ? plan.yearlyPrice : plan.monthlyPrice
     setSelectedPlanName(planName)
     setSelectedAmount(amount)
@@ -151,7 +221,6 @@ export default function PricingPage() {
   }
 
   const processPayment = () => {
-    // Validate inputs
     if (selectedMethod === 'upi' && !upiId.includes('@')) {
       showBanner('Please enter a valid UPI ID (e.g. name@upi)', 'error')
       return
@@ -166,13 +235,8 @@ export default function PricingPage() {
         return
       }
     }
-
-    // Start processing
     setCheckoutStep('processing')
-
-    // Simulate payment processing (2-3 seconds)
     setTimeout(() => {
-      // 90% success rate simulation
       const isSuccess = Math.random() > 0.1
       if (isSuccess) {
         setCheckoutStep('success')
@@ -199,15 +263,14 @@ export default function PricingPage() {
   }
 
   const currentAmount = selectedAmount
-  const isProPlan = selectedPlanName === 'Pro'
 
   return (
     <div className="min-h-screen">
       {/* Hero */}
-      <div className="bg-gradient-to-br from-orange-50 to-amber-50 py-16">
+      <div className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-slate-900 dark:to-slate-950 py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <Badge className="mb-4 bg-orange-100 text-orange-700 border-0">
+            <Badge className="mb-4 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-0">
               <Sparkles className="w-3 h-3 mr-1" /> Simple, transparent pricing
             </Badge>
             <h1 className="text-4xl sm:text-5xl font-bold mb-4">
@@ -224,13 +287,13 @@ export default function PricingPage() {
             <div className="flex items-center justify-center gap-4">
               <span className={cn('text-sm', !isYearly ? 'font-medium' : 'text-muted-foreground')}>Monthly</span>
               <button
-                onClick={() => setIsYearly(!isYearly)}
+                onClick={handleToggleYearly}
                 className={cn('relative w-14 h-7 rounded-full transition-colors', isYearly ? 'bg-[#fb8000]' : 'bg-muted')}
               >
                 <div className={cn('absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform', isYearly ? 'left-8' : 'left-1')} />
               </button>
               <span className={cn('text-sm', isYearly ? 'font-medium' : 'text-muted-foreground')}>Yearly</span>
-              {isYearly && <Badge className="bg-green-100 text-green-700 border-0">Save 33%</Badge>}
+              {isYearly && <Badge className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-0">Save 33%</Badge>}
             </div>
           </motion.div>
         </div>
@@ -243,9 +306,9 @@ export default function PricingPage() {
             className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
             <div className={cn(
               'p-4 rounded-xl flex items-center gap-3 border',
-              bannerType === 'info' && 'bg-blue-50 text-blue-700 border-blue-200',
-              bannerType === 'success' && 'bg-green-50 text-green-700 border-green-200',
-              bannerType === 'error' && 'bg-red-50 text-red-700 border-red-200',
+              bannerType === 'info' && 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+              bannerType === 'success' && 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800',
+              bannerType === 'error' && 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800',
             )}>
               {bannerType === 'success' && <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
               {bannerType === 'error' && <XCircle className="w-5 h-5 flex-shrink-0" />}
@@ -262,7 +325,7 @@ export default function PricingPage() {
           {plans.map((plan, i) => (
             <motion.div key={plan.name} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
               <Card className={cn(
-                'relative overflow-hidden border-0 shadow-sm hover:shadow-xl transition-all',
+                'relative overflow-hidden border-0 shadow-sm hover:shadow-xl transition-all bg-white dark:bg-slate-900 card-3d-hover',
                 plan.popular && 'ring-2 ring-[#fb8000] scale-105 shadow-xl'
               )}>
                 {plan.popular && (
@@ -272,7 +335,7 @@ export default function PricingPage() {
                 )}
                 <CardContent className="p-6 sm:p-8">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', plan.popular ? 'gradient-orange' : 'bg-muted')}>
+                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', plan.popular ? 'gradient-orange' : 'bg-muted dark:bg-slate-800')}>
                       <plan.icon className={cn('w-5 h-5', plan.popular ? 'text-white' : 'text-muted-foreground')} />
                     </div>
                     <div>
@@ -284,13 +347,16 @@ export default function PricingPage() {
                   <div className="mb-6">
                     <div className="flex items-baseline gap-1">
                       <span className="text-sm font-medium">₹</span>
-                      <span className="text-4xl font-bold">{isYearly ? plan.yearlyPrice : plan.monthlyPrice}</span>
+                      <AnimatedPrice
+                        value={isYearly ? plan.yearlyPrice : plan.monthlyPrice}
+                        isChanging={isChanging}
+                      />
                       {plan.monthlyPrice > 0 && (
                         <span className="text-muted-foreground text-sm">/{isYearly ? 'year' : 'month'}</span>
                       )}
                     </div>
                     {isYearly && plan.monthlyPrice > 0 && (
-                      <p className="text-xs text-green-600 mt-1">₹{Math.round(plan.yearlyPrice / 12)}/month billed annually</p>
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">₹{Math.round(plan.yearlyPrice / 12)}/month billed annually</p>
                     )}
                   </div>
 
@@ -304,7 +370,7 @@ export default function PricingPage() {
                   <Button
                     className={cn(
                       'w-full mb-6',
-                      plan.popular ? 'gradient-orange gradient-orange-hover text-white border-0' : 'border',
+                      plan.popular ? 'gradient-orange gradient-orange-hover text-white border-0 btn-glow' : 'border',
                     )}
                     onClick={() => handlePlanSelect(plan.name)}
                   >
@@ -314,11 +380,9 @@ export default function PricingPage() {
                   <div className="space-y-3">
                     {plan.features.map((feature) => (
                       <div key={feature.text} className="flex items-start gap-3">
-                        {feature.included ? (
-                          <Check className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                        ) : (
-                          <X className="w-4 h-4 text-muted-foreground/30 mt-0.5 flex-shrink-0" />
-                        )}
+                        <span className={cn('feature-check', feature.included ? 'included' : 'excluded')}>
+                          {feature.included ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        </span>
                         <span className={cn('text-sm', !feature.included && 'text-muted-foreground/50')}>{feature.text}</span>
                       </div>
                     ))}
@@ -329,16 +393,181 @@ export default function PricingPage() {
           ))}
         </div>
 
+        {/* Money-Back Guarantee Badge */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="flex justify-center mt-10"
+        >
+          <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+            <motion.div
+              className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center"
+              animate={{ scale: [1, 1.05, 1] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <ShieldCheck className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </motion.div>
+            <div>
+              <p className="font-bold text-green-800 dark:text-green-300 text-sm">30-Day Money-Back Guarantee</p>
+              <p className="text-xs text-green-600 dark:text-green-400">Not satisfied? Get a full refund, no questions asked.</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Testimonial Banner */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          className="mt-16 mb-16"
+        >
+          <h3 className="text-center text-lg font-bold mb-6 text-muted-foreground">Trusted by designers worldwide</h3>
+          <div className="marquee rounded-xl overflow-hidden py-4">
+            <div className="marquee-content">
+              {[...testimonials, ...testimonials].map((t, i) => (
+                <div key={i} className="flex-shrink-0 mx-3 w-80">
+                  <Card className="border-0 shadow-sm dark:bg-slate-900 h-full">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full gradient-orange flex items-center justify-center text-white font-bold text-xs">
+                          {t.avatar}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{t.name}</p>
+                          <p className="text-xs text-muted-foreground">{t.company}</p>
+                        </div>
+                        <div className="ml-auto flex gap-0.5">
+                          {[1,2,3,4,5].map(s => (
+                            <Star key={s} className="w-3 h-3 text-amber-400 fill-amber-400" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">&ldquo;{t.text}&rdquo;</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Feature Comparison Table */}
+        <div ref={comparisonRef} className="mt-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-10"
+          >
+            <h2 className="text-3xl font-bold">Compare Plans</h2>
+            <p className="text-muted-foreground mt-2">Find the perfect plan for your needs</p>
+          </motion.div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  <th className="text-left p-4 bg-white dark:bg-slate-900 border-b font-medium text-sm">
+                    Features
+                  </th>
+                  <th className="p-4 bg-white dark:bg-slate-900 border-b font-medium text-sm text-center w-1/4">
+                    Free
+                  </th>
+                  <th className="p-4 border-b font-medium text-sm text-center w-1/4 comparison-highlight bg-white dark:bg-slate-900 relative">
+                    <div className="absolute top-0 left-0 right-0 h-0.5 gradient-orange" />
+                    <span className="text-[#fb8000]">Pro</span>
+                    <Badge className="ml-2 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-0 text-[10px] px-1.5 py-0">Popular</Badge>
+                  </th>
+                  <th className="p-4 bg-white dark:bg-slate-900 border-b font-medium text-sm text-center w-1/4">
+                    Enterprise
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonFeatures.map((feat, i) => (
+                  <motion.tr
+                    key={feat.name}
+                    initial={isComparisonInView ? { opacity: 0, x: -10 } : {}}
+                    animate={isComparisonInView ? { opacity: 1, x: 0 } : {}}
+                    transition={{ delay: i * 0.05 }}
+                    className="border-b border-muted/50 hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="p-4 text-sm font-medium">{feat.name}</td>
+                    <td className="p-4 text-center">
+                      {typeof feat.free === 'boolean' ? (
+                        feat.free ? (
+                          <span className="feature-check included inline-flex"><Check className="w-3 h-3" /></span>
+                        ) : (
+                          <span className="feature-check excluded inline-flex"><X className="w-3 h-3" /></span>
+                        )
+                      ) : (
+                        <span className="text-sm">{feat.free}</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-center comparison-highlight">
+                      {typeof feat.pro === 'boolean' ? (
+                        feat.pro ? (
+                          <span className="feature-check included inline-flex"><Check className="w-3 h-3" /></span>
+                        ) : (
+                          <span className="feature-check excluded inline-flex"><X className="w-3 h-3" /></span>
+                        )
+                      ) : (
+                        <span className="text-sm font-medium text-[#fb8000]">{feat.pro}</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-center">
+                      {typeof feat.enterprise === 'boolean' ? (
+                        feat.enterprise ? (
+                          <span className="feature-check included inline-flex"><Check className="w-3 h-3" /></span>
+                        ) : (
+                          <span className="feature-check excluded inline-flex"><X className="w-3 h-3" /></span>
+                        )
+                      ) : (
+                        <span className="text-sm">{feat.enterprise}</span>
+                      )}
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* FAQ */}
         <div className="mt-20 max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-10">Frequently Asked Questions</h2>
           <div className="space-y-4">
             {faqs.map((faq, i) => (
               <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
-                <Card className="border-0 shadow-sm">
+                <Card className="border-0 shadow-sm dark:bg-slate-900">
                   <CardContent className="p-6">
-                    <h3 className="font-semibold mb-2">{faq.q}</h3>
-                    <p className="text-sm text-muted-foreground">{faq.a}</p>
+                    <button
+                      onClick={() => setExpandedFaq(expandedFaq === i ? null : i)}
+                      className="w-full text-left flex items-start justify-between gap-3"
+                    >
+                      <h3 className="font-semibold">{faq.q}</h3>
+                      <motion.div
+                        animate={{ rotate: expandedFaq === i ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="flex-shrink-0 mt-1"
+                      >
+                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                      </motion.div>
+                    </button>
+                    <AnimatePresence>
+                      {expandedFaq === i && (
+                        <motion.p
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="text-sm text-muted-foreground mt-3 overflow-hidden"
+                        >
+                          {faq.a}
+                        </motion.p>
+                      )}
+                    </AnimatePresence>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -360,7 +589,7 @@ export default function PricingPage() {
         </div>
       </div>
 
-      {/* ==================== PAYMENT CHECKOUT MODAL ==================== */}
+      {/* Payment Checkout Modal */}
       <AnimatePresence>
         {checkoutStep !== 'idle' && (
           <motion.div
@@ -374,10 +603,9 @@ export default function PricingPage() {
               initial={{ opacity: 0, scale: 0.9, y: 30 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden"
             >
-
-              {/* ========== SUCCESS SCREEN ========== */}
+              {/* Success Screen */}
               {checkoutStep === 'success' && (
                 <div className="p-8 text-center">
                   <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}>
@@ -385,7 +613,7 @@ export default function PricingPage() {
                       <CheckCircle2 className="w-10 h-10 text-green-600" />
                     </div>
                   </motion.div>
-                  <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-2xl font-bold text-green-800 mb-2">
+                  <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-2xl font-bold text-green-800 dark:text-green-400 mb-2">
                     Payment Successful!
                   </motion.h2>
                   <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="text-muted-foreground mb-1">
@@ -396,7 +624,7 @@ export default function PricingPage() {
                     Pro Member
                   </motion.div>
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
-                    className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-muted-foreground space-y-1">
+                    className="mt-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-xs text-muted-foreground space-y-1">
                     <p>Order ID: DC{Date.now().toString().slice(-8)}</p>
                     <p>Amount Paid: ₹{currentAmount}</p>
                     <p>Plan: {selectedPlanName} ({isYearly ? 'Yearly' : 'Monthly'})</p>
@@ -409,13 +637,13 @@ export default function PricingPage() {
                 </div>
               )}
 
-              {/* ========== FAILED SCREEN ========== */}
+              {/* Failed Screen */}
               {checkoutStep === 'failed' && (
                 <div className="p-8 text-center">
                   <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-red-100 flex items-center justify-center">
                     <XCircle className="w-10 h-10 text-red-600" />
                   </div>
-                  <h2 className="text-2xl font-bold text-red-800 mb-2">Payment Failed</h2>
+                  <h2 className="text-2xl font-bold text-red-800 dark:text-red-400 mb-2">Payment Failed</h2>
                   <p className="text-muted-foreground mb-6">
                     Your payment could not be processed. Please try again with a different method.
                   </p>
@@ -430,7 +658,7 @@ export default function PricingPage() {
                 </div>
               )}
 
-              {/* ========== PROCESSING SCREEN ========== */}
+              {/* Processing Screen */}
               {checkoutStep === 'processing' && (
                 <div className="p-8 text-center">
                   <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-orange-100 flex items-center justify-center">
@@ -445,7 +673,7 @@ export default function PricingPage() {
                     <CircleDot className="w-3 h-3 text-[#fb8000] animate-bounce" style={{ animationDelay: '150ms' }} />
                     <CircleDot className="w-3 h-3 text-[#fb8000] animate-bounce" style={{ animationDelay: '300ms' }} />
                   </div>
-                  <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-muted-foreground">
+                  <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-xs text-muted-foreground">
                     <div className="flex items-center justify-center gap-1">
                       <Lock className="w-3 h-3" />
                       <span>Encrypted & Secure Connection</span>
@@ -454,10 +682,9 @@ export default function PricingPage() {
                 </div>
               )}
 
-              {/* ========== PAYMENT METHOD SELECTION SCREEN ========== */}
+              {/* Payment Method Selection Screen */}
               {checkoutStep === 'method' && (
                 <div>
-                  {/* Header */}
                   <div className="gradient-orange p-5 text-white">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -483,7 +710,6 @@ export default function PricingPage() {
                     </div>
                   </div>
 
-                  {/* Payment Methods */}
                   <div className="p-5 space-y-3">
                     <p className="text-sm font-medium text-muted-foreground mb-1">Select Payment Method</p>
                     {paymentMethods.map((method) => (
@@ -493,13 +719,13 @@ export default function PricingPage() {
                         className={cn(
                           'w-full flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all text-left',
                           selectedMethod === method.id
-                            ? 'border-[#fb8000] bg-orange-50'
-                            : 'border-gray-100 hover:border-gray-200 bg-white'
+                            ? 'border-[#fb8000] bg-orange-50 dark:bg-orange-900/20'
+                            : 'border-gray-100 dark:border-slate-700 hover:border-gray-200 dark:hover:border-slate-600 bg-white dark:bg-slate-800'
                         )}
                       >
                         <div className={cn(
                           'w-10 h-10 rounded-lg flex items-center justify-center',
-                          selectedMethod === method.id ? 'gradient-orange text-white' : 'bg-slate-100 text-slate-500'
+                          selectedMethod === method.id ? 'gradient-orange text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                         )}>
                           <method.icon className="w-5 h-5" />
                         </div>
@@ -509,7 +735,7 @@ export default function PricingPage() {
                         </div>
                         <div className={cn(
                           'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all',
-                          selectedMethod === method.id ? 'border-[#fb8000]' : 'border-gray-300'
+                          selectedMethod === method.id ? 'border-[#fb8000]' : 'border-gray-300 dark:border-slate-600'
                         )}>
                           {selectedMethod === method.id && (
                             <div className="w-2.5 h-2.5 rounded-full bg-[#fb8000]" />
@@ -521,18 +747,18 @@ export default function PricingPage() {
                     {/* UPI Input */}
                     {selectedMethod === 'upi' && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
-                        <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-3">
                           <label className="text-sm font-medium">Enter UPI ID</label>
                           <input
                             type="text"
                             value={upiId}
                             onChange={(e) => setUpiId(e.target.value)}
                             placeholder="yourname@upi"
-                            className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
+                            className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700 dark:bg-slate-900 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
                           />
                           <div className="flex gap-2">
                             {['gpay', 'phonepe', 'paytm'].map(app => (
-                              <div key={app} className="flex-1 py-2 rounded-lg bg-white border border-gray-100 text-center text-xs text-muted-foreground">
+                              <div key={app} className="flex-1 py-2 rounded-lg bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 text-center text-xs text-muted-foreground">
                                 {app === 'gpay' ? 'GPay' : app === 'phonepe' ? 'PhonePe' : 'Paytm'}
                               </div>
                             ))}
@@ -544,14 +770,14 @@ export default function PricingPage() {
                     {/* Card Input */}
                     {selectedMethod === 'card' && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
-                        <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-3">
                           <label className="text-sm font-medium">Card Details</label>
                           <input
                             type="text"
                             value={cardNumber}
                             onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim().slice(0, 19))}
                             placeholder="1234 5678 9012 3456"
-                            className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
+                            className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700 dark:bg-slate-900 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
                           />
                           <div className="grid grid-cols-2 gap-3">
                             <input
@@ -563,7 +789,7 @@ export default function PricingPage() {
                                 setCardExpiry(v)
                               }}
                               placeholder="MM/YY"
-                              className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
+                              className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700 dark:bg-slate-900 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
                             />
                             <input
                               type="password"
@@ -571,7 +797,7 @@ export default function PricingPage() {
                               onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 3))}
                               placeholder="CVV"
                               maxLength={3}
-                              className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
+                              className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700 dark:bg-slate-900 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
                             />
                           </div>
                           <input
@@ -579,7 +805,7 @@ export default function PricingPage() {
                             value={cardName}
                             onChange={(e) => setCardName(e.target.value)}
                             placeholder="Cardholder Name"
-                            className="w-full px-4 py-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
+                            className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700 dark:bg-slate-900 text-sm focus:outline-none focus:border-[#fb8000] focus:ring-1 focus:ring-[#fb8000] transition"
                           />
                         </div>
                       </motion.div>
@@ -588,10 +814,10 @@ export default function PricingPage() {
                     {/* Net Banking Selection */}
                     {selectedMethod === 'netbanking' && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
-                        <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
                           <label className="text-sm font-medium">Popular Banks</label>
                           {['SBI', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'Punjab National Bank', 'Kotak Mahindra'].map(bank => (
-                            <button key={bank} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white transition text-left">
+                            <button key={bank} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition text-left">
                               <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
                                 {bank.slice(0, 2)}
                               </div>
@@ -605,10 +831,10 @@ export default function PricingPage() {
                     {/* Wallet Selection */}
                     {selectedMethod === 'wallet' && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
-                        <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
                           <label className="text-sm font-medium">Select Wallet</label>
                           {['Paytm Wallet', 'Amazon Pay', 'Mobikwik', 'Freecharge', 'Ola Money'].map(w => (
-                            <button key={w} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white transition text-left">
+                            <button key={w} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition text-left">
                               <Wallet className="w-4 h-4 text-slate-500" />
                               <span className="text-sm">{w}</span>
                             </button>
@@ -635,7 +861,6 @@ export default function PricingPage() {
                   </div>
                 </div>
               )}
-
             </motion.div>
           </motion.div>
         )}

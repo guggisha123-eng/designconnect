@@ -1,14 +1,47 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Mail, Lock, User, Eye, EyeOff, Palette, Loader2, CheckCircle } from 'lucide-react'
-import { useNavStore, type UserRole } from '@/store/nav-store'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Mail, Lock, User, Eye, EyeOff, Palette, Loader2, CheckCircle,
+  Chrome, Github, Sparkles, Shield, Info,
+} from 'lucide-react'
+import { useNavStore, type UserRole, type User } from '@/store/nav-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import { createClient, isSupabaseReady } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
 import WaterEffect from '@/components/layout/WaterEffect'
+
+// Demo user accounts
+const DEMO_DESIGNER: User = {
+  id: 'demo-designer',
+  name: 'Demo Designer',
+  email: 'demo@designconnect.com',
+  role: 'designer',
+  avatar: null,
+  bio: 'Demo designer account',
+  location: 'San Francisco, CA',
+  isPro: false,
+  isAdmin: false,
+}
+
+const DEMO_CLIENT: User = {
+  id: 'demo-client',
+  name: 'Demo Client',
+  email: 'client@designconnect.com',
+  role: 'client',
+  avatar: null,
+  bio: 'Demo client account',
+  location: 'New York, NY',
+  isPro: false,
+  isAdmin: false,
+}
 
 export default function AuthPage() {
   const { authMode, setAuthMode, navigateTo, login } = useNavStore()
@@ -17,7 +50,13 @@ export default function AuthPage() {
   const [successMsg, setSuccessMsg] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [accountType, setAccountType] = useState<UserRole>('designer')
-  const [supabaseReady, setSupabaseReady] = useState(true)
+  // Initialize supabaseReady from isSupabaseReady() directly to avoid flicker
+  const [supabaseReady, setSupabaseReady] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return isSupabaseReady()
+  })
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [demoLoading, setDemoLoading] = useState<string | null>(null)
 
   // Login fields
   const [loginEmail, setLoginEmail] = useState('')
@@ -29,10 +68,7 @@ export default function AuthPage() {
   const [signupPassword, setSignupPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
-  // Check Supabase readiness
-  useEffect(() => {
-    setSupabaseReady(isSupabaseReady())
-  }, [])
+  // Supabase readiness is now initialized in useState to avoid UI flicker
 
   // Check session on mount
   useEffect(() => {
@@ -64,13 +100,36 @@ export default function AuthPage() {
     checkSession()
   }, [])
 
+  // Demo login handler
+  const handleDemoLogin = (demoUser: User) => {
+    setDemoLoading(demoUser.role)
+    // Small delay for visual feedback
+    setTimeout(() => {
+      login(demoUser)
+      navigateTo('dashboard')
+      toast({
+        title: `Welcome, ${demoUser.name}!`,
+        description: 'You are now exploring in demo mode.',
+      })
+      setDemoLoading(null)
+    }, 600)
+  }
+
+  // Social login click handler
+  const handleSocialLogin = (provider: string) => {
+    toast({
+      title: 'Coming soon',
+      description: `${provider} sign-in will be available once the service is fully configured.`,
+    })
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
     if (!isSupabaseReady()) {
-      setError('Authentication service is being configured. Please try again later.')
+      setError('Authentication service is being configured. Please try again later or use demo mode.')
       setLoading(false)
       return
     }
@@ -125,7 +184,7 @@ export default function AuthPage() {
         })
         navigateTo('dashboard')
       }
-    } catch (err) {
+    } catch {
       setError('Connection error. Please check your internet and try again.')
     } finally {
       setLoading(false)
@@ -150,7 +209,7 @@ export default function AuthPage() {
     setLoading(true)
 
     if (!isSupabaseReady()) {
-      setError('Authentication service is being configured. Please try again later.')
+      setError('Authentication service is being configured. Please try again later or use demo mode.')
       setLoading(false)
       return
     }
@@ -278,17 +337,22 @@ export default function AuthPage() {
             </span>
           </div>
 
-          {/* Supabase not configured warning */}
+          {/* Demo mode info banner */}
           {!supabaseReady && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl"
+              className="mb-6 p-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl"
             >
-              <p className="font-semibold mb-1">Authentication Not Configured</p>
-              <p className="text-red-600">
-                The admin needs to set up Supabase credentials in the deployment settings. Please contact support or try again later.
-              </p>
+              <div className="flex items-start gap-2.5">
+                <Info className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold mb-1">Running in demo mode</p>
+                  <p className="text-amber-700">
+                    Full authentication will be available once the service is configured. In the meantime, explore the app using the demo accounts below.
+                  </p>
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -316,212 +380,329 @@ export default function AuthPage() {
             </button>
           </div>
 
-          <h1 className="text-2xl font-bold mb-2">
-            {authMode === 'login' ? 'Welcome back' : 'Create your account'}
-          </h1>
-          <p className="text-muted-foreground text-sm mb-6">
-            {authMode === 'login'
-              ? 'Sign in to your Design Connect account'
-              : 'Join the creative community today'}
-          </p>
-
-          {/* Error */}
-          {error && (
+          <AnimatePresence mode="wait">
             <motion.div
-              initial={{ opacity: 0, y: -10 }}
+              key={authMode}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl"
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25 }}
             >
-              {error}
+              <h1 className="text-2xl font-bold mb-2">
+                {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+              </h1>
+              <p className="text-muted-foreground text-sm mb-6">
+                {authMode === 'login'
+                  ? 'Sign in to your Design Connect account'
+                  : 'Join the creative community today'}
+              </p>
+
+              {/* Error */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl"
+                >
+                  {error}
+                </motion.div>
+              )}
+
+              {/* Success */}
+              {successMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 bg-green-50 border border-green-200 text-green-600 text-sm rounded-xl"
+                >
+                  {successMsg}
+                </motion.div>
+              )}
+
+              {/* Demo Login Section */}
+              {!supabaseReady && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="mb-6"
+                >
+                  <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200/60 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Sparkles className="w-5 h-5 text-[#fb8000]" />
+                      <span className="font-semibold text-sm text-foreground">Try the Demo</span>
+                    </div>
+                    <p className="text-muted-foreground text-xs mb-4 leading-relaxed">
+                      Explore all features with a pre-configured demo account. No sign-up required.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button
+                        type="button"
+                        onClick={() => handleDemoLogin(DEMO_DESIGNER)}
+                        disabled={demoLoading !== null}
+                        className="h-auto py-3 flex-col gap-1.5 gradient-orange gradient-orange-hover text-white border-0"
+                      >
+                        {demoLoading === 'designer' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Palette className="w-5 h-5" />
+                        )}
+                        <span className="text-xs font-medium">
+                          {demoLoading === 'designer' ? 'Signing in...' : 'Designer'}
+                        </span>
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => handleDemoLogin(DEMO_CLIENT)}
+                        disabled={demoLoading !== null}
+                        className="h-auto py-3 flex-col gap-1.5 bg-slate-800 hover:bg-slate-700 text-white border-0"
+                      >
+                        {demoLoading === 'client' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Shield className="w-5 h-5" />
+                        )}
+                        <span className="text-xs font-medium">
+                          {demoLoading === 'client' ? 'Signing in...' : 'Client'}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Divider with "or" */}
+                  <div className="relative my-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-background px-3 text-muted-foreground">or continue with credentials</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Social Login Buttons */}
+              {authMode === 'login' && supabaseReady && (
+                <div className="space-y-3 mb-6">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleSocialLogin('Google')}
+                    className="w-full h-11 text-sm font-medium"
+                  >
+                    <Chrome className="w-4 h-4 mr-2" />
+                    Continue with Google
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleSocialLogin('GitHub')}
+                    className="w-full h-11 text-sm font-medium"
+                  >
+                    <Github className="w-4 h-4 mr-2" />
+                    Continue with GitHub
+                  </Button>
+
+                  {/* Divider with "or" */}
+                  <div className="relative my-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-background px-3 text-muted-foreground">or</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Login Form */}
+              {authMode === 'login' && (
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div>
+                    <Label htmlFor="login-email" className="mb-1.5 block text-sm">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="login-email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="login-password" className="mb-1.5 block text-sm">Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="login-password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Enter your password"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        className="pl-10 pr-10"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Forgot Password Link */}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-xs text-muted-foreground hover:text-[#fb8000] transition-colors"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={loading || !supabaseReady}
+                    className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Signing in...
+                      </>
+                    ) : (
+                      'Sign In'
+                    )}
+                  </Button>
+                </form>
+              )}
+
+              {/* Signup Form */}
+              {authMode === 'signup' && (
+                <form onSubmit={handleSignup} className="space-y-4">
+                  <div>
+                    <Label htmlFor="signup-name" className="mb-1.5 block text-sm">Full Name</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="signup-name"
+                        type="text"
+                        placeholder="John Doe"
+                        value={signupName}
+                        onChange={(e) => setSignupName(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="signup-email" className="mb-1.5 block text-sm">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="signup-email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={signupEmail}
+                        onChange={(e) => setSignupEmail(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="mb-1.5 block text-sm">Account Type</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setAccountType('designer')}
+                        className={`p-3 rounded-xl border-2 text-sm text-center transition-all ${
+                          accountType === 'designer'
+                            ? 'border-[#fb8000] bg-orange-50 text-[#fb8000]'
+                            : 'border-border hover:border-muted-foreground'
+                        }`}
+                      >
+                        Designer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAccountType('client')}
+                        className={`p-3 rounded-xl border-2 text-sm text-center transition-all ${
+                          accountType === 'client'
+                            ? 'border-[#fb8000] bg-orange-50 text-[#fb8000]'
+                            : 'border-border hover:border-muted-foreground'
+                        }`}
+                      >
+                        Client
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="signup-password" className="mb-1.5 block text-sm">Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="signup-password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Min 6 characters"
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        className="pl-10 pr-10"
+                        required
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="confirm-password" className="mb-1.5 block text-sm">Confirm Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="confirm-password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Re-enter your password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pl-10"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={loading || !supabaseReady}
+                    className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating account...
+                      </>
+                    ) : (
+                      'Create Account'
+                    )}
+                  </Button>
+                </form>
+              )}
             </motion.div>
-          )}
-
-          {/* Success */}
-          {successMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-3 bg-green-50 border border-green-200 text-green-600 text-sm rounded-xl"
-            >
-              {successMsg}
-            </motion.div>
-          )}
-
-          {/* Login Form */}
-          {authMode === 'login' && (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <Label htmlFor="login-email" className="mb-1.5 block text-sm">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="login-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    className="pl-10"
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="login-password" className="mb-1.5 block text-sm">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="login-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    className="pl-10 pr-10"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={loading || !supabaseReady}
-                className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Signing in...
-                  </>
-                ) : (
-                  'Sign In'
-                )}
-              </Button>
-            </form>
-          )}
-
-          {/* Signup Form */}
-          {authMode === 'signup' && (
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div>
-                <Label htmlFor="signup-name" className="mb-1.5 block text-sm">Full Name</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="signup-name"
-                    type="text"
-                    placeholder="John Doe"
-                    value={signupName}
-                    onChange={(e) => setSignupName(e.target.value)}
-                    className="pl-10"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="signup-email" className="mb-1.5 block text-sm">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={signupEmail}
-                    onChange={(e) => setSignupEmail(e.target.value)}
-                    className="pl-10"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="mb-1.5 block text-sm">Account Type</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAccountType('designer')}
-                    className={`p-3 rounded-xl border-2 text-sm text-center transition-all ${
-                      accountType === 'designer'
-                        ? 'border-[#fb8000] bg-orange-50 text-[#fb8000]'
-                        : 'border-border hover:border-muted-foreground'
-                    }`}
-                  >
-                    Designer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAccountType('client')}
-                    className={`p-3 rounded-xl border-2 text-sm text-center transition-all ${
-                      accountType === 'client'
-                        ? 'border-[#fb8000] bg-orange-50 text-[#fb8000]'
-                        : 'border-border hover:border-muted-foreground'
-                    }`}
-                  >
-                    Client
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="signup-password" className="mb-1.5 block text-sm">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="signup-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Min 6 characters"
-                    value={signupPassword}
-                    onChange={(e) => setSignupPassword(e.target.value)}
-                    className="pl-10 pr-10"
-                    required
-                    minLength={6}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="confirm-password" className="mb-1.5 block text-sm">Confirm Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="confirm-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Re-enter your password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="pl-10"
-                    required
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={loading || !supabaseReady}
-                className="w-full gradient-orange gradient-orange-hover text-white border-0 h-11"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating account...
-                  </>
-                ) : (
-                  'Create Account'
-                )}
-              </Button>
-            </form>
-          )}
+          </AnimatePresence>
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             {authMode === 'login' ? (
@@ -548,6 +729,32 @@ export default function AuthPage() {
           </p>
         </motion.div>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset your password</DialogTitle>
+            <DialogDescription>
+              Password reset will be available once email service is configured.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              In the meantime, you can use the demo accounts to explore the app, or contact your administrator for assistance.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowForgotPassword(false)}
+            >
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

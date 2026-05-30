@@ -6,7 +6,7 @@ import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useNavStore } from '@/store/nav-store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, isSupabaseReady } from '@/lib/supabase/client'
 
 interface Category {
   id: string
@@ -40,6 +40,10 @@ export default function CategoriesPage() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
+        if (!isSupabaseReady()) {
+          // Use default categories if Supabase is not configured
+          return
+        }
         const supabase = createClient()
         const { data } = await supabase.from('categories').select('*').order('name')
         if (data && data.length > 0) {
@@ -68,7 +72,7 @@ export default function CategoriesPage() {
   return (
     <div className="min-h-screen">
       {/* Hero */}
-      <div className="bg-gradient-to-br from-orange-50 to-amber-50 py-16">
+      <div className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-slate-900 dark:to-slate-950 py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <h1 className="text-4xl sm:text-5xl font-bold mb-4">Categories</h1>
@@ -90,11 +94,11 @@ export default function CategoriesPage() {
               transition={{ delay: i * 0.05 }}
             >
               <Card
-                className="cursor-pointer group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-0 overflow-hidden"
+                className="cursor-pointer group hover:shadow-lg dark:shadow-slate-900/30 dark:hover:shadow-slate-900/50 transition-all duration-300 hover:-translate-y-1 border-0 overflow-hidden dark:bg-slate-900"
                 onClick={() => handleCategoryClick(cat)}
               >
                 <CardContent className="p-0">
-                  <div className="h-32 bg-gradient-to-br from-orange-100 to-amber-50 flex items-center justify-center relative overflow-hidden">
+                  <div className="h-32 bg-gradient-to-br from-orange-100 to-amber-50 dark:from-slate-800 dark:to-slate-800/50 flex items-center justify-center relative overflow-hidden">
                     <span className="text-5xl group-hover:scale-125 transition-transform duration-300">
                       {cat.icon}
                     </span>
