@@ -1,3 +1,8 @@
+-- ============================================
+-- Design Connect - Complete Database Schema
+-- Run this in Supabase SQL Editor
+-- ============================================
+
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -40,7 +45,9 @@ CREATE TABLE IF NOT EXISTS designs (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   title TEXT NOT NULL,
   description TEXT,
-  thumbnail TEXT NOT NULL,
+  thumbnail TEXT NOT NULL DEFAULT '',
+  thumbnail_url TEXT,
+  image_urls TEXT,
   category TEXT,
   subcategory TEXT,
   category_id TEXT REFERENCES categories(id),
@@ -51,12 +58,40 @@ CREATE TABLE IF NOT EXISTS designs (
   view_count INT DEFAULT 0,
   download_count INT DEFAULT 0,
   like_count INT DEFAULT 0,
+  reference_count INT DEFAULT 0,
   display_order INT DEFAULT 0,
   is_featured BOOLEAN DEFAULT false,
   status TEXT DEFAULT 'active',
   designer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Design References (for the Reference button)
+CREATE TABLE IF NOT EXISTS design_references (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(design_id, user_id)
+);
+
+-- Saved Designs (bookmark/collection)
+CREATE TABLE IF NOT EXISTS saved_designs (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(design_id, user_id)
+);
+
+-- Downloads tracking
+CREATE TABLE IF NOT EXISTS downloads (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  design_id TEXT NOT NULL REFERENCES designs(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(design_id, user_id)
 );
 
 -- Orders
@@ -138,9 +173,14 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 INSERT INTO storage.buckets (id, name, public) VALUES ('designs', 'designs', true) ON CONFLICT DO NOTHING;
 INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT DO NOTHING;
 
--- RLS policies
+-- ============================================
+-- RLS (Row Level Security) Policies
+-- ============================================
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE designs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE design_references ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saved_designs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE downloads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE likes ENABLE ROW LEVEL SECURITY;
@@ -149,26 +189,40 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE withdrawals ENABLE ROW LEVEL SECURITY;
 
--- Users: anyone can read profiles, only own user can update
+-- Users
 CREATE POLICY "Users are viewable by everyone" ON users FOR SELECT USING (true);
 CREATE POLICY "Users can insert their own profile" ON users FOR INSERT WITH CHECK (auth.uid()::text = id);
 CREATE POLICY "Users can update their own profile" ON users FOR UPDATE USING (auth.uid()::text = id);
 
--- Designs: viewable by everyone, only designer can create/update their own
+-- Designs
 CREATE POLICY "Designs are viewable by everyone" ON designs FOR SELECT USING (true);
 CREATE POLICY "Designers can create designs" ON designs FOR INSERT WITH CHECK (auth.uid()::text = designer_id);
 CREATE POLICY "Designers can update their own designs" ON designs FOR UPDATE USING (auth.uid()::text = designer_id);
 CREATE POLICY "Designers can delete their own designs" ON designs FOR DELETE USING (auth.uid()::text = designer_id);
 
--- Orders: buyers/designers can see their own, admins can see all
+-- Design References
+CREATE POLICY "Design refs viewable by everyone" ON design_references FOR SELECT USING (true);
+CREATE POLICY "Users can add references" ON design_references FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY "Users can remove references" ON design_references FOR DELETE USING (auth.uid()::text = user_id);
+
+-- Saved Designs
+CREATE POLICY "Saved designs viewable by everyone" ON saved_designs FOR SELECT USING (true);
+CREATE POLICY "Users can save designs" ON saved_designs FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY "Users can unsave designs" ON saved_designs FOR DELETE USING (auth.uid()::text = user_id);
+
+-- Downloads
+CREATE POLICY "Downloads viewable by everyone" ON downloads FOR SELECT USING (true);
+CREATE POLICY "Users can add downloads" ON downloads FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- Orders
 CREATE POLICY "Users can see their own orders" ON orders FOR SELECT USING (auth.uid()::text = buyer_id OR auth.uid()::text = designer_id OR EXISTS (SELECT 1 FROM users WHERE id = auth.uid()::text AND is_admin = true));
 CREATE POLICY "Anyone can create orders" ON orders FOR INSERT WITH CHECK (auth.uid()::text = buyer_id);
 
--- Comments: viewable by all, authenticated users can create
+-- Comments
 CREATE POLICY "Comments viewable by everyone" ON comments FOR SELECT USING (true);
 CREATE POLICY "Authenticated users can comment" ON comments FOR INSERT WITH CHECK (auth.uid()::text = user_id);
 
--- Likes: viewable by all, authenticated can create their own
+-- Likes
 CREATE POLICY "Likes viewable by everyone" ON likes FOR SELECT USING (true);
 CREATE POLICY "Users can like" ON likes FOR INSERT WITH CHECK (auth.uid()::text = user_id);
 CREATE POLICY "Users can unlike" ON likes FOR DELETE USING (auth.uid()::text = user_id);
@@ -190,16 +244,37 @@ CREATE POLICY "Users can create reviews" ON reviews FOR INSERT WITH CHECK (auth.
 CREATE POLICY "Users can see their own withdrawals" ON withdrawals FOR SELECT USING (auth.uid()::text = user_id OR EXISTS (SELECT 1 FROM users WHERE id = auth.uid()::text AND is_admin = true));
 CREATE POLICY "Users can create withdrawals" ON withdrawals FOR INSERT WITH CHECK (auth.uid()::text = user_id);
 
--- Trigger to auto-set user id from auth
+-- ============================================
+-- Trigger: Auto-create user profile on signup
+-- ============================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO public.users (id, email, name, role)
-  VALUES (NEW.id::text, NEW.email, NEW.raw_user_meta_data->>'name', COALESCE(NEW.raw_user_meta_data->>'role', 'designer'));
+  VALUES (NEW.id::text, NEW.email, COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)), COALESCE(NEW.raw_user_meta_data->>'role', 'designer'));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================
+-- Sample Data
+-- ============================================
+
+-- Sample Categories
+INSERT INTO categories (name, slug, icon) VALUES
+  ('Logo Design', 'logo-design', 'palette'),
+  ('UI/UX Design', 'ui-ux', 'layout'),
+  ('Typography', 'typography', 'type'),
+  ('Illustration', 'illustration', 'brush'),
+  ('Social Media', 'social-media', 'share2'),
+  ('Print Design', 'print-design', 'printer'),
+  ('3D Design', '3d-design', 'box'),
+  ('Icons', 'icons', 'shapes'),
+  ('Motion Design', 'motion-design', 'play'),
+  ('Poster Design', 'poster-design', 'image')
+ON CONFLICT (name) DO NOTHING;
