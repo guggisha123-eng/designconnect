@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
 import crypto from 'crypto'
 
 export async function POST(req: NextRequest) {
@@ -42,13 +43,22 @@ export async function POST(req: NextRequest) {
     }
 
     // Payment is verified! Now update user's Pro status in Supabase
-    // We'll use the Supabase client to update the user
-    const { createClient } = await import('@supabase/supabase-js')
+    // Using server client with auth cookies for RLS
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
     if (supabaseUrl && supabaseKey) {
-      const supabase = createClient(supabaseUrl, supabaseKey)
+      const cookieStore = req.cookies
+      const supabase = createServerClient(supabaseUrl, supabaseKey, {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll()
+          },
+          setAll() {
+            // No need to set cookies back for update
+          },
+        },
+      })
 
       // Calculate expiry date (30 days from now for monthly, 365 days for yearly)
       const isYearly = planName === 'Pro Yearly'
@@ -59,15 +69,13 @@ export async function POST(req: NextRequest) {
         .from('users')
         .update({
           is_pro: true,
-          plan: planName,
-          pro_activated_at: new Date().toISOString(),
-          pro_expires_at: proExpiresAt.toISOString(),
+          pro_plan: planName,
+          pro_expiry: proExpiresAt.toISOString(),
         })
         .eq('id', userId)
 
       if (dbError) {
         console.error('Database update error:', dbError)
-        // Still return success for payment, but log the DB error
       }
     }
 

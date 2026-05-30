@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +10,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    // Create Supabase client with request cookies for auth context
+    const cookieStore = req.cookies
+    const supabase = createServerClient(supabaseUrl, supabaseKey, {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => {
+            // In API routes, we don't need to set cookies back for read operations
+          })
+        },
+      },
+    })
+
+    // Verify user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Authentication required. Please login first.' }, { status: 401 })
+    }
 
     const formData = await req.formData()
     const userId = formData.get('userId') as string
@@ -24,9 +43,12 @@ export async function POST(req: NextRequest) {
 
     const files = formData.getAll('images') as File[]
 
-    if (!userId || !title || !category) {
-      return NextResponse.json({ error: 'userId, title, and category are required' }, { status: 400 })
+    if (!title || !category) {
+      return NextResponse.json({ error: 'Title and category are required' }, { status: 400 })
     }
+
+    // Use authenticated user's ID (ignore userId from form for security)
+    const designerId = user.id
 
     // Upload images to Supabase Storage
     const uploadedUrls: string[] = []
@@ -37,14 +59,14 @@ export async function POST(req: NextRequest) {
         if (!file || file.size === 0) continue
 
         const ext = file.name.split('.').pop() || 'png'
-        const fileName = `${userId}/${Date.now()}_${i}.${ext}`
+        const fileName = `${designerId}/${Date.now()}_${i}.${ext}`
 
         // Convert File to ArrayBuffer for upload
         const arrayBuffer = await file.arrayBuffer()
         const buffer = new Uint8Array(arrayBuffer)
 
         const { error: uploadError } = await supabase.storage
-          .from('design-images')
+          .from('designs')
           .upload(fileName, buffer, {
             contentType: file.type || 'image/png',
             upsert: true,
@@ -58,7 +80,7 @@ export async function POST(req: NextRequest) {
 
         // Get public URL
         const { data: urlData } = supabase.storage
-          .from('design-images')
+          .from('designs')
           .getPublicUrl(fileName)
 
         if (urlData?.publicUrl) {
@@ -71,7 +93,7 @@ export async function POST(req: NextRequest) {
     const { data: design, error: dbError } = await supabase
       .from('designs')
       .insert({
-        designer_id: userId,
+        designer_id: designerId,
         title,
         description: description || '',
         category,
@@ -79,12 +101,12 @@ export async function POST(req: NextRequest) {
         is_free: isFree,
         price,
         source_files: sourceFiles || null,
-        image_urls: uploadedUrls.length > 0 ? uploadedUrls : null,
+        image_urls: uploadedUrls.length > 0 ? uploadedUrls.join(',') : null,
         thumbnail_url: uploadedUrls[0] || null,
         view_count: 0,
         like_count: 0,
         download_count: 0,
-        status: 'published',
+        status: 'active',
       })
       .select('id')
       .single()
