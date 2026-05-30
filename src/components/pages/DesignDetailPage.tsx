@@ -70,6 +70,41 @@ function saveLocalReferences(refs: Record<string, boolean>) {
   if (typeof window !== 'undefined') localStorage.setItem('dc_references', JSON.stringify(refs))
 }
 
+// Fallback design when Supabase is not available or design not found
+function getFallbackDesign(id: string): DesignDetail {
+  const sampleDesigns: Record<string, { title: string; desc: string; cat: string; sub: string; price: number; free: boolean }> = {
+    'd1': { title: 'Modern Brand Identity', desc: 'A comprehensive brand identity package including logo variations, color palette, typography guidelines, and brand collateral templates. Perfect for startups and small businesses looking to establish a strong visual presence.\n\nThis design package includes:\n- Primary and secondary logo variations\n- Color palette with hex codes\n- Typography selection and usage guidelines\n- Business card template\n- Letterhead template\n- Social media profile templates\n- Brand guidelines document', cat: 'Logo Design', sub: 'Brand Identity', price: 29, free: false },
+    'd2': { title: 'E-Commerce Dashboard UI', desc: 'A clean and modern dashboard interface designed for e-commerce platforms. Features real-time analytics, order management, inventory tracking, and customer insights.\n\nKey features:\n- Sales overview with interactive charts\n- Order management with filters\n- Product inventory dashboard\n- Customer analytics\n- Responsive design for all devices', cat: 'UI/UX Design', sub: 'Dashboard', price: 0, free: true },
+    'd3': { title: 'Minimal Poster Series', desc: 'A set of minimalist posters designed for art exhibitions and cultural events. Each poster uses clean typography and limited color palettes to create striking visual compositions.\n\nIncludes:\n- 5 poster variations\n- Print-ready files (A2, A3 sizes)\n- Social media versions\n- Customizable templates', cat: 'Poster Design', sub: 'Minimalist', price: 19, free: false },
+  }
+  const sample = sampleDesigns[id] || sampleDesigns['d1']
+  return {
+    id: id,
+    title: sample.title,
+    description: sample.desc,
+    thumbnail: '',
+    thumbnail_url: null,
+    image_urls: [],
+    preview_images: [],
+    category: sample.cat,
+    subcategory: sample.sub,
+    price: sample.price,
+    is_free: sample.free,
+    source_files: 'AI, EPS, SVG, PNG, PDF',
+    view_count: 1234,
+    download_count: 456,
+    like_count: 78,
+    reference_count: 23,
+    created_at: new Date().toISOString(),
+    designer: {
+      id: 'designer-1',
+      name: 'Sarah Chen',
+      avatar: null,
+      bio: 'Brand designer with 8+ years of experience',
+    },
+  }
+}
+
 export default function DesignDetailPage() {
   const navigateTo = useNavStore((s) => s.navigateTo)
   const selectedDesignId = useNavStore((s) => s.selectedDesignId)
@@ -110,97 +145,84 @@ export default function DesignDetailPage() {
     const fetchDesign = async () => {
       setLoading(true)
       try {
-        const supabase = createClient()
-
-        // Fetch design with designer info
-        const { data, error } = await supabase
-          .from('designs')
-          .select('*, users!designs_designer_id_fkey(id, name, avatar, bio)')
-          .eq('id', selectedDesignId)
-          .single()
-
-        if (data && !error) {
-          const imageUrls = data.image_urls || []
-          setDesign({
-            id: data.id,
-            title: data.title,
-            description: data.description || 'No description available.',
-            thumbnail: data.thumbnail,
-            thumbnail_url: data.thumbnail_url || imageUrls[0] || null,
-            image_urls: imageUrls,
-            preview_images: data.preview_images ? JSON.parse(data.preview_images) : [],
-            category: data.category || 'Design',
-            subcategory: data.subcategory || '',
-            price: data.price || 0,
-            is_free: data.is_free,
-            source_files: data.source_files || '',
-            view_count: (data.view_count || 0) + 1,
-            download_count: data.download_count || 0,
-            like_count: data.like_count || 0,
-            reference_count: data.reference_count || 0,
-            created_at: data.created_at,
-            designer: {
-              id: data.users?.id || '',
-              name: data.users?.name || 'Unknown',
-              avatar: data.users?.avatar || null,
-              bio: data.users?.bio || null,
-            },
-          })
-
-          // Increment view count
+        if (isSupabaseReady()) {
           try {
-            await supabase
+            const supabase = createClient()
+
+            // Fetch design with designer info
+            const { data, error } = await supabase
               .from('designs')
-              .update({ view_count: data.view_count + 1 })
-              .eq('id', data.id)
-          } catch { /* ignore */ }
-        } else {
-          // Fallback sample design
-          setDesign({
-            id: selectedDesignId,
-            title: 'Modern Brand Identity',
-            description: 'A comprehensive brand identity package including logo variations, color palette, typography guidelines, and brand collateral templates. Perfect for startups and small businesses looking to establish a strong visual presence.\n\nThis design package includes:\n- Primary and secondary logo variations\n- Color palette with hex codes\n- Typography selection and usage guidelines\n- Business card template\n- Letterhead template\n- Social media profile templates\n- Brand guidelines document',
-            thumbnail: '',
-            preview_images: [],
-            category: 'Logo Design',
-            subcategory: 'Brand Identity',
-            price: 29,
-            is_free: false,
-            source_files: 'AI, EPS, SVG, PNG, PDF',
-            view_count: 1234,
-            download_count: 456,
-            like_count: 78,
-            reference_count: 23,
-            created_at: new Date().toISOString(),
-            designer: {
-              id: 'designer-1',
-              name: 'Sarah Chen',
-              avatar: null,
-              bio: 'Brand designer with 8+ years of experience',
-            },
-          })
-        }
+              .select('*, users!designs_designer_id_fkey(id, name, avatar, bio)')
+              .eq('id', selectedDesignId)
+              .single()
 
-        // Fetch comments
-        try {
-          const { data: commentData } = await supabase
-            .from('comments')
-            .select('*, users!comments_user_id_fkey(name, avatar)')
-            .eq('design_id', selectedDesignId)
-            .order('created_at', { ascending: false })
+            if (data && !error) {
+              const imageUrls = data.image_urls || []
+              setDesign({
+                id: data.id,
+                title: data.title,
+                description: data.description || 'No description available.',
+                thumbnail: data.thumbnail,
+                thumbnail_url: data.thumbnail_url || imageUrls[0] || null,
+                image_urls: imageUrls,
+                preview_images: data.preview_images ? JSON.parse(data.preview_images) : [],
+                category: data.category || 'Design',
+                subcategory: data.subcategory || '',
+                price: data.price || 0,
+                is_free: data.is_free,
+                source_files: data.source_files || '',
+                view_count: (data.view_count || 0) + 1,
+                download_count: data.download_count || 0,
+                like_count: data.like_count || 0,
+                reference_count: data.reference_count || 0,
+                created_at: data.created_at,
+                designer: {
+                  id: data.users?.id || '',
+                  name: data.users?.name || 'Unknown',
+                  avatar: data.users?.avatar || null,
+                  bio: data.users?.bio || null,
+                },
+              })
 
-          if (commentData) {
-            setComments(commentData.map((c: any) => ({
-              id: c.id,
-              content: c.content,
-              user_name: c.users?.name || 'Anonymous',
-              user_avatar: c.users?.avatar || null,
-              created_at: c.created_at,
-            })))
+              // Increment view count
+              try {
+                await supabase
+                  .from('designs')
+                  .update({ view_count: data.view_count + 1 })
+                  .eq('id', data.id)
+              } catch { /* ignore */ }
+            } else {
+              setDesign(getFallbackDesign(selectedDesignId))
+            }
+
+            // Fetch comments
+            try {
+              const { data: commentData } = await supabase
+                .from('comments')
+                .select('*, users!comments_user_id_fkey(name, avatar)')
+                .eq('design_id', selectedDesignId)
+                .order('created_at', { ascending: false })
+
+              if (commentData) {
+                setComments(commentData.map((c: any) => ({
+                  id: c.id,
+                  content: c.content,
+                  user_name: c.users?.name || 'Anonymous',
+                  user_avatar: c.users?.avatar || null,
+                  created_at: c.created_at,
+                })))
+              }
+            } catch { /* ignore */ }
+          } catch (dbErr) {
+            console.warn('Supabase fetch failed, using fallback:', dbErr)
+            setDesign(getFallbackDesign(selectedDesignId))
           }
-        } catch { /* ignore */ }
+        } else {
+          // No Supabase configured — use fallback data
+          setDesign(getFallbackDesign(selectedDesignId))
+        }
       } catch {
-        // Already have fallback above
+        setDesign(getFallbackDesign(selectedDesignId))
       } finally {
         setLoading(false)
       }
@@ -230,7 +252,7 @@ export default function DesignDetailPage() {
     saveLocalLikes(likes)
 
     // Try Supabase if configured
-    if (isSupabaseReady && user) {
+    if (isSupabaseReady() && user) {
       try {
         const supabase = createClient()
         if (newLiked) {
@@ -286,7 +308,7 @@ export default function DesignDetailPage() {
     setTimeout(() => setShareMsg(''), 2000)
 
     // Try Supabase
-    if (isSupabaseReady && user) {
+    if (isSupabaseReady() && user) {
       try {
         const supabase = createClient()
         if (newRef) {
@@ -317,6 +339,21 @@ export default function DesignDetailPage() {
   const handleComment = async () => {
     if (!newComment.trim() || !isLoggedIn) return
     setSubmittingComment(true)
+
+    // If Supabase not configured, add comment locally
+    if (!isSupabaseReady()) {
+      setComments(prev => [{
+        id: `local-${Date.now()}`,
+        content: newComment,
+        user_name: user?.name || 'You',
+        user_avatar: null,
+        created_at: new Date().toISOString(),
+      }, ...prev])
+      setNewComment('')
+      setSubmittingComment(false)
+      return
+    }
+
     try {
       const supabase = createClient()
       const { data: { user: authUser } } = await supabase.auth.getUser()
