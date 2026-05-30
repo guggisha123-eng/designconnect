@@ -93,59 +93,60 @@ export default function ProfileEditDialog({ open, onOpenChange, profile, onProfi
     setSuccess('')
 
     try {
-      if (isSupabaseReady() && user) {
-        const supabase = createClient()
-        const { data: { user: authUser } } = await supabase.auth.getUser()
-
-        if (authUser) {
-          // Update auth metadata
-          await supabase.auth.updateUser({
-            data: { name, bio, location }
-          })
-
-          // Update public profile
-          const { error: profileError } = await supabase
-            .from('users')
-            .upsert({
-              id: authUser.id,
-              name,
-              bio: bio || null,
-              location: location || null,
-              website: website || null,
-              specialization: specialization || null,
-              skills: skills || null,
-              experience: experience || null,
-              instagram: instagram || null,
-              twitter: twitter || null,
-              linkedin: linkedin || null,
-            }, { onConflict: 'id' })
-
-          if (profileError) throw profileError
-        }
-      }
-
-      // Update local user state
+      // Update local user state FIRST (always works)
       const updatedUser = {
         ...user!,
         name,
         bio: bio || null,
         location: location || null,
+        website: website || null,
+        specialization: specialization || null,
+        skills: skills || null,
+        experience: experience || null,
+        instagram: instagram || null,
+        twitter: twitter || null,
+        linkedin: linkedin || null,
       }
       setUser(updatedUser)
 
       // Save to localStorage
       if (typeof window !== 'undefined') {
         localStorage.setItem('dc_user', JSON.stringify(updatedUser))
-        // Also save extended profile
-        localStorage.setItem('dc_profile_extended', JSON.stringify({
-          website,
-          specialization,
-          skills,
-          experience,
-          instagram,
-          twitter,
-          linkedin,
-        }))
+      }
+
+      // Try Supabase sync (non-blocking — don't fail if Supabase not ready)
+      if (isSupabaseReady() && user) {
+        try {
+          const supabase = createClient()
+          const { data: { user: authUser } } = await supabase.auth.getUser()
+
+          if (authUser) {
+            await supabase.auth.updateUser({
+              data: { name, bio, location }
+            })
+
+            const { error: profileError } = await supabase
+              .from('users')
+              .upsert({
+                id: authUser.id,
+                name,
+                bio: bio || null,
+                location: location || null,
+                website: website || null,
+                specialization: specialization || null,
+                skills: skills || null,
+                experience: experience || null,
+                instagram: instagram || null,
+                twitter: twitter || null,
+                linkedin: linkedin || null,
+              }, { onConflict: 'id' })
+
+            if (profileError) console.warn('Supabase profile update warning:', profileError)
+          }
+        } catch (supabaseErr) {
+          console.warn('Supabase sync failed (non-blocking):', supabaseErr)
+          // Don't show error — local save already succeeded
+        }
       }
 
       setSuccess('Profile updated successfully!')
